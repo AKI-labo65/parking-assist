@@ -677,6 +677,7 @@ function App() {
   const [lineReportTargetIds, setLineReportTargetIds] = useState([])
   const [workLineText, setWorkLineText] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
   const [toast, setToast] = useState('')
 
   const storeConfigs = useMemo(() => WORK_STORES.map((config) => {
@@ -807,6 +808,24 @@ function App() {
     notify('記録を削除しました。LINE報告を再生成してください')
   }
 
+  const deleteAllSettledRecords = () => {
+    if (settledRecords.length === 0) {
+      setDeleteAllOpen(false)
+      return
+    }
+    const count = settledRecords.length
+    const settledIds = new Set(settledRecords.map((record) => record.id))
+    setRecords((current) => current.filter((record) => !settledIds.has(record.id)))
+    setDeleteAllOpen(false)
+    setEditRecord(null)
+    setNoteRecord(null)
+    setReportRecord(null)
+    setIssueRecord(null)
+    setLineText('')
+    setLineReportTargetIds([])
+    notify(`${count}件の履歴を削除しました`)
+  }
+
   const generateLineText = () => {
     if (!workReport.schedule.endedAt) {
       const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
@@ -907,7 +926,7 @@ function App() {
 
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
 
-      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。90秒以内は終了後、90秒超は都度報告します。</p></div><span className="section-count">{settledRecords.length}件</span></div><div className="line-tools"><div><strong>シフト終了後のまとめ報告</strong><span>{workReport.schedule.endedAt ? '退店完了済み・90秒以内の未報告記録をまとめます。' : '90秒以内の記録は18:00勤務終了後にまとめて報告します。'}</span></div><button type="button" className="line-button" disabled={!workReport.schedule.endedAt} onClick={generateLineText}><span className="line-mark">LINE</span>{workReport.schedule.endedAt ? 'まとめて報告文を生成' : '18:00終了後に生成'}</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => { const needsImmediateReport = Boolean(record.exitCompletedAt) && getElapsedSeconds(record, now) > 90 && !record.lineReportedAt; return <RecordRow key={record.id} record={record} now={now} action={record.exitCompletedAt ? (needsImmediateReport ? generateImmediateLineText : undefined) : completeExit} actionLabel={record.exitCompletedAt ? '都度報告' : '退店完了'} onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} /> })}</div>}</section>}
+      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。90秒以内は終了後、90秒超は都度報告します。</p></div><div className="section-heading-actions"><span className="section-count">{settledRecords.length}件</span><button type="button" className="subtle-button danger history-clear-button" disabled={settledRecords.length === 0} onClick={() => setDeleteAllOpen(true)}><Icon name="trash" size={16} />履歴を全件削除</button></div></div><div className="line-tools"><div><strong>シフト終了後のまとめ報告</strong><span>{workReport.schedule.endedAt ? '退店完了済み・90秒以内の未報告記録をまとめます。' : '90秒以内の記録は18:00勤務終了後にまとめて報告します。'}</span></div><button type="button" className="line-button" disabled={!workReport.schedule.endedAt} onClick={generateLineText}><span className="line-mark">LINE</span>{workReport.schedule.endedAt ? 'まとめて報告文を生成' : '18:00終了後に生成'}</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => { const needsImmediateReport = Boolean(record.exitCompletedAt) && getElapsedSeconds(record, now) > 90 && !record.lineReportedAt; return <RecordRow key={record.id} record={record} now={now} action={record.exitCompletedAt ? (needsImmediateReport ? generateImmediateLineText : undefined) : completeExit} actionLabel={record.exitCompletedAt ? '都度報告' : '退店完了'} onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} /> })}</div>}</section>}
     </main>
     <footer className="app-footer">端末内に自動保存中 · {todayKey}</footer>
     <nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav>
@@ -915,6 +934,7 @@ function App() {
     {reportRecord && <ReportSheet record={records.find((record) => record.id === reportRecord.id) || reportRecord} onSave={saveReportSettings} onClose={() => setReportRecord(null)} />}
     {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
     {editRecord && <EditModal record={records.find((record) => record.id === editRecord.id) || editRecord} onSave={saveEdit} onDelete={deleteRecord} onClose={() => setEditRecord(null)} />}
+    {deleteAllOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteAllOpen(false)}><section className="edit-modal delete-all-modal" role="dialog" aria-modal="true" aria-labelledby="delete-all-title"><div className="modal-heading"><div><span className="eyebrow">当日の履歴</span><h2 id="delete-all-title">履歴を全件削除しますか？</h2></div><button type="button" className="icon-button" onClick={() => setDeleteAllOpen(false)} aria-label="閉じる"><Icon name="close" /></button></div><p className="spot-confirm-help">精算済みの履歴{settledRecords.length}件を削除します。駐車中・精算待ちの記録は残ります。</p><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setDeleteAllOpen(false)}>キャンセル</button><button type="button" className="delete-all-confirm-button" onClick={deleteAllSettledRecords}><Icon name="trash" size={17} />削除する</button></div></section></div>}
     {settingsOpen && <SettingsSheet settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>

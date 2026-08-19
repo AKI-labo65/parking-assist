@@ -54,6 +54,7 @@ button:disabled { cursor: not-allowed; }
 .secondary-nav-button.active { color: var(--orange) !important; }
 .view-section { padding-bottom: 28px; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 14px; margin: 13px 0 18px; }
+.section-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .section-heading h1 { margin: 0; color: var(--navy); font-size: clamp(21px, 4.4vw, 27px); letter-spacing: -0.04em; }
 .section-heading p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .section-count { color: var(--muted); white-space: nowrap; font-size: 13px; font-weight: 800; padding-bottom: 4px; }
@@ -138,6 +139,12 @@ button:disabled { cursor: not-allowed; }
 .subtle-button:hover { background: #eff3f8; color: var(--navy); }
 .subtle-button.danger { color: var(--red); }
 .subtle-button.danger:hover { background: #fff0f1; }
+.history-clear-button { min-height: 35px; padding-inline: 8px; white-space: nowrap; }
+.history-clear-button:disabled { color: #b8c0cd; background: transparent; cursor: not-allowed; }
+.delete-all-modal { max-width: 520px; }
+.delete-all-confirm-button { min-height: 48px; padding: 0 17px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 10px; background: var(--red); color: white; box-shadow: 0 4px 0 #98232b; font-weight: 900; }
+.delete-all-confirm-button:hover { background: #b9252e; transform: translateY(-1px); }
+.delete-all-confirm-button:active { transform: translateY(2px); box-shadow: none; }
 .empty-state { min-height: 190px; padding: 32px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--muted); text-align: center; border: 1px dashed #c8d2e1; border-radius: 14px; background: rgba(255,255,255,.64); }
 .empty-state strong { color: var(--navy); font-size: 16px; }
 .empty-state span { font-size: 12px; }
