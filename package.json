@@ -1,0 +1,25 @@
+{
+  "name": "parking-assist-log",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "mobile:sync": "npm run build && cap sync android",
+    "android:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
+    "android:release": "npm run mobile:sync && cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "latest",
+    "@capacitor/core": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "latest",
+    "typescript": "^7.0.2"
+  }
+}

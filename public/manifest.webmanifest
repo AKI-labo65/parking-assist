@@ -1,0 +1,14 @@
+{
+  "name": "精算機補助",
+  "short_name": "精算機補助",
+  "description": "駐車証明発行・精算記録を素早く残す現場向けアプリ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#0b285c",
+  "lang": "ja",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
