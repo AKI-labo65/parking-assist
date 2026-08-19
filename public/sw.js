@@ -1,4 +1,4 @@
-const CACHE_NAME = 'parking-assist-v20'
+const CACHE_NAME = 'parking-assist-v21'
 const BASE_PATH = new URL('./', self.registration.scope).pathname
 const APP_SHELL = [BASE_PATH, `${BASE_PATH}index.html`, `${BASE_PATH}manifest.webmanifest`, `${BASE_PATH}icon.svg`]
 
