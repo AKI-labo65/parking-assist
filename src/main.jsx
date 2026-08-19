@@ -451,7 +451,7 @@ function SpotConfirmSheet({ record, onConfirm, onClose }) {
       <p className="spot-confirm-help">利用者さまに駐車位置番号を確認し、入力してから発行を確定してください。開始時の番号が違っていても修正できます。</p>
       {hasKnownSpot && <p className="spot-confirm-started">開始時の番号：<strong>{formatSpotLabel(initialSpot)}</strong></p>}
       <label className="field-label" htmlFor="certificate-spot">駐車位置番号（入力必須・数字／英字）</label>
-      <input id="certificate-spot" className="text-input spot-confirm-input" type="text" inputMode="numeric" autoFocus value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17" />
+      <input id="certificate-spot" className="text-input spot-confirm-input" type="text" inputMode="numeric" value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17（直接入力する場合）" />
       <div className="spot-quick-grid" aria-label="駐車位置番号の候補">{quickSpots.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div>
       <div className="spot-confirm-actions"><button type="button" className="primary-button" disabled={!normalizeSpot(spot)} onClick={() => onConfirm(record.id, spot)}>{spot ? `${formatSpotLabel(spot)}で発行確定` : '番号を入力してください'}</button><button type="button" className="exception-button" onClick={() => onConfirm(record.id, '')}>番号不明のまま発行（例外）</button></div>
     </section>
