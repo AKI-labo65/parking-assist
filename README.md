@@ -131,7 +131,7 @@ PWAとして使うには、スマホからアクセスできるHTTPSのURLで配
 公開版URL（GitHub Pages）:
 
 ```text
-https://aki-labo65.github.io/parking-assist-pwa/
+https://aki-labo65.github.io/parking-assist/
 ```
 
 - iPhone（Safari）: ページを開く → 共有ボタン → 「ホーム画面に追加」 → 追加
