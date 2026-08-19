@@ -125,6 +125,7 @@ button:disabled { cursor: not-allowed; }
 .status-badge.settled { background: var(--mint); color: var(--mint-text); }
 .result-label { font-size: 11px; font-weight: 900; }
 .result-label.warning { color: var(--amber-text); }
+.result-label.completed-result { color: var(--mint-text); }
 .metric-line { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: baseline; }
 .metric-line span { display: flex; align-items: baseline; gap: 5px; min-width: 56px; }
 .metric-line small { color: var(--muted); font-size: 10px; font-weight: 700; }
@@ -244,6 +245,15 @@ button:disabled { cursor: not-allowed; }
 .note-options.compact { grid-template-columns: repeat(2, 1fr); margin-top: 8px; }
 .note-option { min-height: 50px; padding: 5px 7px; border: 1px solid #b8c6dd; border-radius: 9px; background: white; color: var(--navy); display: flex; align-items: center; justify-content: center; gap: 4px; text-align: center; font-size: 12px; font-weight: 900; }
 .note-option.selected { border-color: var(--orange); background: #fff3ed; color: var(--orange-dark); }
+.report-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 16px; }
+.report-type-option { min-height: 65px; padding: 8px 10px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; border: 1px solid #b8c6dd; border-radius: 9px; background: white; color: var(--navy); text-align: left; }
+.report-type-option strong { font-size: 12px; }
+.report-type-option small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.report-type-option.selected { border-color: var(--orange); background: #fff3ed; color: var(--orange-dark); box-shadow: 0 0 0 2px #ffe7dc; }
+.report-type-option.selected small { color: var(--orange-dark); }
+.report-flag-options { display: grid; gap: 7px; margin: 8px 0 15px; }
+.report-flag-option { min-height: 42px; padding: 7px 10px; display: flex; align-items: center; justify-content: flex-start; gap: 5px; border: 1px solid #b8c6dd; border-radius: 8px; background: white; color: var(--navy); text-align: left; font-size: 11px; font-weight: 800; }
+.report-flag-option.selected { border-color: var(--orange); background: #fff3ed; color: var(--orange-dark); }
 .field-label { display: block; margin: 12px 0 7px; color: var(--navy); font-size: 12px; font-weight: 900; }
 .text-input { width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid #b9c5d6; border-radius: 8px; background: white; color: var(--ink); outline: 0; font-size: 14px; }
 .text-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px #ffe7dc; }

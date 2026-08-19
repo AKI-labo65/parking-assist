@@ -7,6 +7,19 @@ const STORAGE_PREFIX = 'parking-assist-records:'
 const WORK_STORAGE_PREFIX = 'parking-assist-work:'
 const SETTINGS_STORAGE_KEY = 'parking-assist-settings'
 const COMMON_NOTES = ['サービス券1枚使用', '料金未発生', '操作ミス', '発行できず', '精算時間不明']
+const REPORT_TYPES = [
+  { id: 'normal', label: '通常', description: '1分30秒以内・問題なく発行' },
+  { id: 'entryNoCertificate', label: '入店時：証明書未発行', description: '入店時に証明書が出ていなかった' },
+  { id: 'issuanceDefect', label: '発行不具合', description: '1分30秒以内だが一度発行できなかった' },
+  { id: 'entryMisoperation', label: '入店時：誤操作', description: '駐車証明・精算の誤操作があった' },
+  { id: 'serviceTicket', label: '未発行＋サービス券', description: '証明書未発行でもサービス券で精算' },
+  { id: 'custom', label: '自由入力', description: '定型文を使わず補足する' },
+]
+const REPORT_FLAGS = [
+  { id: 'misoperationOnce', label: '駐車証明と精算の誤操作(1度のみ)' },
+  { id: 'certificateIssued', label: '駐車証明発行済' },
+  { id: 'issuanceFailedOnce', label: '1度発行不可' },
+]
 const COMMUTE_OPTIONS = ['車', '電車']
 const RESTART_MESSAGES = ['只今から次の店舗の方に向かいます。', '現場離れます。']
 const COMMON_WORK_MESSAGES = ['合流済み、現地にてオリエン完了しました。']
@@ -64,6 +77,13 @@ function getElapsedSeconds(record, now = Date.now()) {
   return Math.max(0, Math.floor((ended - started) / 1000))
 }
 
+function getSettlementDelayMinutes(record) {
+  const from = new Date(record.issuedAt || record.startedAt).getTime()
+  const settled = new Date(record.settledAt).getTime()
+  if (!Number.isFinite(from) || !Number.isFinite(settled)) return null
+  return Math.max(0, Math.floor((settled - from) / 60000))
+}
+
 function formatDuration(seconds) {
   const safeSeconds = Math.max(0, Number(seconds) || 0)
   return `${String(Math.floor(safeSeconds / 60)).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
@@ -83,6 +103,10 @@ function normalizeSpot(value) {
   return spot || null
 }
 
+function normalizeReportFlags(flags) {
+  return REPORT_FLAGS.reduce((result, flag) => ({ ...result, [flag.id]: Boolean(flags?.[flag.id]) }), {})
+}
+
 function formatSpotLabel(value, fallback = '番号未入力') {
   const spot = normalizeSpot(value)
   if (!spot) return fallback
@@ -99,6 +123,84 @@ function getRecordSpotLabel(record) {
   return record.unknownLabel ? `番号未入力 #${record.unknownLabel}` : '番号未入力'
 }
 
+function withReportMemo(lines, record) {
+  const memo = record.reportMemo?.trim()
+  return memo ? [...lines, '', memo].join('\n') : lines.join('\n')
+}
+
+function buildDetailedReportText(record, storeLabel) {
+  const reportType = record.reportType || 'normal'
+  const spotLine = `駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`
+  const issueTime = formatTime(record.issuedAt || record.startedAt)
+  const settleLine = record.settledAt ? `${formatTime(record.settledAt)}…精算` : '精算時間不明'
+  const delayMinutes = getSettlementDelayMinutes(record)
+  const delayNote = delayMinutes !== null && delayMinutes >= 9 ? '※9分以上経過しているため問題なく精算できております。' : ''
+  const flags = normalizeReportFlags(record.reportFlags)
+
+  if (reportType === 'issuanceDefect') {
+    const issueDetail = flags.issuanceFailedOnce || reportType === 'issuanceDefect' ? '証明書発行済(1度発行不可)' : '証明書発行済'
+    return withReportMemo([
+      `【${storeLabel}】`,
+      'お疲れ様です。',
+      '1分30秒以内の件、発行不具合のケースです。',
+      '',
+      spotLine,
+      record.issuedAt ? `駐車→証明書発行${getElapsedSeconds(record)}秒` : '駐車→証明書発行できず',
+      '',
+      `${issueTime}…${issueDetail}`,
+      settleLine,
+      '',
+      delayMinutes !== null && delayMinutes > 0 ? `${delayMinutes}分` : '',
+    ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])), record)
+  }
+
+  if (reportType === 'serviceTicket') {
+    return withReportMemo([
+      `【${storeLabel}】`,
+      'お疲れ様です。',
+      '駐車証明未発行ですが、店内でサービス券を受け取られていたため問題なく精算完了しております。',
+      '',
+      spotLine,
+      '',
+      `${formatTime(record.startedAt)}…駐車証明未発行`,
+      settleLine,
+      delayNote,
+    ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])), record)
+  }
+
+  if (reportType === 'custom') {
+    return [
+      `【${storeLabel}】`,
+      'お疲れ様です。',
+      record.reportMemo?.trim() || '補足報告です。',
+      '',
+      spotLine,
+      '',
+      `${issueTime}…${record.issuedAt ? '証明書発行済' : '駐車証明未発行'}`,
+      settleLine,
+    ].join('\n')
+  }
+
+  const header = reportType === 'entryMisoperation' ? '入店時誤操作のお客様です。' : '入店時駐車証明未発行のお客様です。'
+  const details = []
+  if (flags.misoperationOnce) details.push('駐車証明と精算の誤操作(1度のみ)')
+  if (record.issuedAt || flags.certificateIssued) details.push('駐車証明発行済')
+  if (details.length === 0) details.push(record.issuedAt ? '駐車証明発行済' : '駐車証明未発行')
+  return withReportMemo([
+    `【${storeLabel}】`,
+    'お疲れ様です。',
+    header,
+    '精算完了しております。念のためご報告させていただきます。',
+    '',
+    spotLine,
+    '',
+    `${issueTime}…${details.join('、')}`,
+    settleLine,
+    '',
+    delayNote,
+  ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])), record)
+}
+
 function normalizeRecord(record) {
   const spot = normalizeSpot(record.spot)
   return {
@@ -110,6 +212,10 @@ function normalizeRecord(record) {
     spotSource: record.spotSource || (spot ? 'legacy' : 'unknown'),
     notePresets: Array.isArray(record.notePresets) ? record.notePresets : [],
     memo: record.memo || '',
+    exitCompletedAt: record.exitCompletedAt || null,
+    reportType: REPORT_TYPES.some((type) => type.id === record.reportType) ? record.reportType : 'normal',
+    reportFlags: normalizeReportFlags(record.reportFlags),
+    reportMemo: record.reportMemo || '',
   }
 }
 
@@ -400,7 +506,7 @@ function SettingsSheet({ settings, onSave, onClose }) {
   </div>
 }
 
-function RecordRow({ record, now, action, actionLabel, actionTone = 'primary', onNote, onEdit, onDelete }) {
+function RecordRow({ record, now, action, actionLabel, actionTone = 'primary', onNote, onReport, onEdit, onDelete }) {
   const elapsed = getElapsedSeconds(record, now)
   const overLimit = elapsed > 90
   const notes = getNotes(record)
@@ -408,14 +514,15 @@ function RecordRow({ record, now, action, actionLabel, actionTone = 'primary', o
     <div className="row-main">
       <div className={`spot-number ${getRecordSpot(record) ? '' : 'unknown'}`}><span>{getRecordSpotLabel(record)}</span></div>
       <div className="row-data">
-        <div className="row-topline"><StatusBadge status={record.status} />{overLimit && <span className="result-label warning">90秒超</span>}</div>
+        <div className="row-topline"><StatusBadge status={record.status} />{record.exitCompletedAt && <span className="result-label completed-result">退店完了</span>}{overLimit && <span className="result-label warning">90秒超</span>}</div>
         <div className="metric-line"><span><small>経過</small><strong>{elapsed}秒</strong></span><span><small>証明書発行</small><strong>{formatTime(record.issuedAt)}</strong></span>{record.status !== 'parking' && <span><small>精算</small><strong>{formatTime(record.settledAt)}</strong></span>}</div>
         {notes && <div className="row-note"><Icon name="note" size={15} />{notes}</div>}
       </div>
       {action && <button type="button" className={`action-button ${actionTone}`} onClick={() => action(record)}>{actionLabel}</button>}
     </div>
-    {(onNote || onEdit || onDelete) && <div className="row-actions">
+    {(onNote || onReport || onEdit || onDelete) && <div className="row-actions">
       {onNote && <button type="button" className="subtle-button" onClick={() => onNote(record)}><Icon name="note" size={16} />メモ</button>}
+      {onReport && <button type="button" className="subtle-button" onClick={() => onReport(record)}><Icon name="note" size={16} />報告設定</button>}
       {onEdit && <button type="button" className="subtle-button" onClick={() => onEdit(record)}><Icon name="edit" size={16} />編集</button>}
       {onDelete && <button type="button" className="subtle-button danger" onClick={() => onDelete(record)}><Icon name="trash" size={16} />削除</button>}
     </div>}
@@ -475,6 +582,32 @@ function NoteSheet({ record, onSave, onClose }) {
   </div>
 }
 
+function ReportSheet({ record, onSave, onClose }) {
+  const [reportType, setReportType] = useState(record?.reportType || 'normal')
+  const [flags, setFlags] = useState(normalizeReportFlags(record?.reportFlags))
+  const [reportMemo, setReportMemo] = useState(record?.reportMemo || '')
+  if (!record) return null
+  const toggleFlag = (flag) => setFlags((current) => ({ ...current, [flag]: !current[flag] }))
+  const visibleFlags = reportType === 'issuanceDefect' ? REPORT_FLAGS.filter((flag) => flag.id === 'issuanceFailedOnce') : REPORT_FLAGS.filter((flag) => flag.id !== 'issuanceFailedOnce')
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="report-sheet-title">
+      <div className="sheet-handle" />
+      <div className="sheet-heading"><div><span className="eyebrow">{getRecordSpotLabel(record)}の退店後報告</span><h2 id="report-sheet-title">LINE報告パターン</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
+      <p className="spot-confirm-help">お客様の退店完了後に選択してください。選んだ形式と補足は、この記録のLINE報告に反映されます。</p>
+      <div className="report-options" aria-label="LINE報告パターン">
+        {REPORT_TYPES.map((type) => <button key={type.id} type="button" className={`report-type-option ${reportType === type.id ? 'selected' : ''}`} aria-pressed={reportType === type.id} onClick={() => setReportType(type.id)}><strong>{type.label}</strong><small>{type.description}</small></button>)}
+      </div>
+      {reportType !== 'normal' && reportType !== 'serviceTicket' && <>
+        <div className="field-label">報告に含める内容</div>
+        <div className="report-flag-options">{visibleFlags.map((flag) => <button key={flag.id} type="button" className={`report-flag-option ${flags[flag.id] ? 'selected' : ''}`} aria-pressed={Boolean(flags[flag.id])} onClick={() => toggleFlag(flag.id)}>{flags[flag.id] && <Icon name="check" size={16} />}{flag.label}</button>)}</div>
+      </>}
+      <label className="field-label" htmlFor="report-memo">報告に追加する補足（任意）</label>
+      <textarea id="report-memo" className="text-input memo-input" value={reportMemo} onChange={(event) => setReportMemo(event.target.value)} rows="3" placeholder="例：店内でサービス券を受け取られていました" />
+      <div className="sheet-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="primary-button" onClick={() => onSave(record.id, { reportType, reportFlags: flags, reportMemo })}>報告設定を保存</button></div>
+    </section>
+  </div>
+}
+
 function EditModal({ record, onSave, onDelete, onClose }) {
   const [form, setForm] = useState({
     spot: record.spot,
@@ -492,7 +625,7 @@ function EditModal({ record, onSave, onDelete, onClose }) {
     const startedAt = parseDateTimeInput(form.startedAt) || record.startedAt
     const issuedAt = parseDateTimeInput(form.issuedAt)
     const settledAt = parseDateTimeInput(form.settledAt)
-    onSave(record.id, { spot, startedSpot: record.startedSpot || spot, spotConfirmedAt: issuedAt ? (record.spotConfirmedAt || issuedAt) : null, spotSource: spot ? 'edit' : 'unknown', startedAt, issuedAt, settledAt, status: settledAt ? 'settled' : issuedAt ? 'issued' : 'parking', notePresets: form.notePresets, memo: form.memo })
+    onSave(record.id, { spot, startedSpot: record.startedSpot || spot, spotConfirmedAt: issuedAt ? (record.spotConfirmedAt || issuedAt) : null, spotSource: spot ? 'edit' : 'unknown', startedAt, issuedAt, settledAt, exitCompletedAt: settledAt ? record.exitCompletedAt : null, status: settledAt ? 'settled' : issuedAt ? 'issued' : 'parking', notePresets: form.notePresets, memo: form.memo })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
@@ -516,6 +649,7 @@ function App() {
   const [activeView, setActiveView] = useState('record')
   const [now, setNow] = useState(Date.now())
   const [noteRecord, setNoteRecord] = useState(null)
+  const [reportRecord, setReportRecord] = useState(null)
   const [editRecord, setEditRecord] = useState(null)
   const [issueRecord, setIssueRecord] = useState(null)
   const [lineText, setLineText] = useState('')
@@ -571,14 +705,14 @@ function App() {
     const normalizedSpot = normalizeSpot(spot)
     const occupied = records.some((record) => getRecordSpot(record) === normalizedSpot && record.status !== 'settled')
     if (occupied) return notify(`${formatSpotLabel(normalizedSpot)}は現在対応中です`)
-    const record = { id: makeId(), spot: normalizedSpot, startedSpot: normalizedSpot, unknownLabel: null, spotConfirmedAt: null, spotSource: normalizedSpot ? 'start' : 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, status: 'parking', notePresets: [], memo: '' }
+    const record = { id: makeId(), spot: normalizedSpot, startedSpot: normalizedSpot, unknownLabel: null, spotConfirmedAt: null, spotSource: normalizedSpot ? 'start' : 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
     setRecords((current) => [...current, record])
     notify(`${formatSpotLabel(normalizedSpot, '番号未入力')}のタイマーを開始しました`)
   }
 
   const startUnknownRecord = () => {
     const unknownLabel = String(records.filter((record) => !getRecordSpot(record) && record.status !== 'settled').length + 1)
-    const record = { id: makeId(), spot: null, startedSpot: null, unknownLabel, spotConfirmedAt: null, spotSource: 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, status: 'parking', notePresets: [], memo: '' }
+    const record = { id: makeId(), spot: null, startedSpot: null, unknownLabel, spotConfirmedAt: null, spotSource: 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
     setRecords((current) => [...current, record])
     notify(`番号未入力 #${unknownLabel}のタイマーを開始しました`)
   }
@@ -604,14 +738,26 @@ function App() {
   }
 
   const settleRecord = (record) => {
-    updateRecord(record.id, { settledAt: new Date().toISOString(), status: 'settled' })
+    updateRecord(record.id, { settledAt: new Date().toISOString(), exitCompletedAt: null, status: 'settled' })
     notify(`${getRecordSpotLabel(record)}の精算を記録しました`)
+  }
+
+  const completeExit = (record) => {
+    if (!record.settledAt) return notify('先に精算を記録してください')
+    updateRecord(record.id, { exitCompletedAt: new Date().toISOString() })
+    notify(`${getRecordSpotLabel(record)}の退店完了を記録しました`)
   }
 
   const saveNotes = (id, patch) => {
     updateRecord(id, patch)
     setNoteRecord(null)
     notify('メモを保存しました')
+  }
+
+  const saveReportSettings = (id, patch) => {
+    updateRecord(id, { reportType: patch.reportType || 'normal', reportFlags: normalizeReportFlags(patch.reportFlags), reportMemo: patch.reportMemo || '' })
+    setReportRecord(null)
+    notify('LINE報告の形式を保存しました')
   }
 
   const saveEdit = (id, patch) => {
@@ -632,24 +778,39 @@ function App() {
     setRecords((current) => current.filter((item) => item.id !== record.id))
     setEditRecord(null)
     setNoteRecord(null)
+    setReportRecord(null)
     setIssueRecord(null)
     setLineText('')
     notify('記録を削除しました。LINE報告を再生成してください')
   }
 
   const generateLineText = () => {
-    // LINE報告は、当日の精算済み記録のうち90秒以内だけを対象にする。
-    const reportRecords = settledRecords.filter((record) => getElapsedSeconds(record, now) <= 90)
-    const recordsText = [...reportRecords].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt)).map((record) => {
+    // LINE報告は、退店完了済みの精算済み記録のうち90秒以内だけを対象にする。
+    const eligibleRecords = settledRecords.filter((record) => getElapsedSeconds(record, now) <= 90)
+    const reportRecords = eligibleRecords.filter((record) => record.exitCompletedAt)
+    const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
+    const sortedRecords = [...reportRecords].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt))
+    const normalRecords = sortedRecords.filter((record) => !record.reportType || record.reportType === 'normal')
+    const detailedRecords = sortedRecords.filter((record) => record.reportType && record.reportType !== 'normal')
+    const recordsText = normalRecords.map((record) => {
       const elapsedText = record.issuedAt ? `駐車→証明書発行${getElapsedSeconds(record, now)}秒` : '駐車→証明書発行できず'
       const issuedText = record.issuedAt ? `${formatTime(record.issuedAt).replace(':', '：')}…証明書発行` : `${formatTime(record.startedAt).replace(':', '：')}…証明書発行できず`
       const settledText = record.settledAt ? `${formatTime(record.settledAt).replace(':', '：')}…精算` : '精算時間不明'
       const noteText = getNotes(record) ? `＊${getNotes(record)}` : ''
       return [`・駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`, elapsedText, issuedText, `${settledText}${noteText}`].join('\n')
     }).join('\n\n')
-    const hasException = reportRecords.some((record) => Boolean(getNotes(record)))
-    const reportHeader = [`【${storeConfigs.find((config) => config.id === 'storeB').label}】`, 'お疲れ様です。', reportRecords.length === 0 ? '90秒以内の記録はありません。' : hasException ? '1分30秒以内の記録ですが、例外メモがあります。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
-    setLineText(`${reportHeader}${recordsText ? `\n\n${recordsText}` : ''}`)
+    const sections = []
+    if (normalRecords.length > 0) {
+      const hasException = normalRecords.some((record) => Boolean(getNotes(record)))
+      const reportHeader = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、例外メモがあります。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
+      sections.push(`${reportHeader}${recordsText ? `\n\n${recordsText}` : ''}`)
+    }
+    detailedRecords.forEach((record) => sections.push(buildDetailedReportText(record, storeLabel)))
+    if (sections.length === 0) {
+      const pendingText = eligibleRecords.length > 0 ? '退店完了を記録した90秒以内の件はありません。' : '90秒以内の記録はありません。'
+      sections.push([`【${storeLabel}】`, 'お疲れ様です。', pendingText].join('\n'))
+    }
+    setLineText(sections.join('\n\n\n'))
     notify('LINE用テキストを生成しました')
   }
 
@@ -700,11 +861,12 @@ function App() {
 
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
 
-      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。</p></div><span className="section-count">{settledRecords.length}件</span></div><div className="line-tools"><div><strong>LINE報告</strong><span>90秒以内の精算済み記録だけをまとめます。90秒超は除外されます。</span></div><button type="button" className="line-button" onClick={generateLineText}><span className="line-mark">LINE</span>LINE用テキストを生成</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => <RecordRow key={record.id} record={record} now={now} onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
+      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。退店完了後に報告形式を選べます。</p></div><span className="section-count">{settledRecords.length}件</span></div><div className="line-tools"><div><strong>LINE報告</strong><span>退店完了済み、かつ90秒以内の精算済み記録だけをまとめます。90秒超は除外されます。</span></div><button type="button" className="line-button" onClick={generateLineText}><span className="line-mark">LINE</span>LINE用テキストを生成</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={record.exitCompletedAt ? undefined : completeExit} actionLabel="退店完了" onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
     </main>
     <footer className="app-footer">端末内に自動保存中 · {todayKey}</footer>
     <nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav>
     {noteRecord && <NoteSheet record={records.find((record) => record.id === noteRecord.id) || noteRecord} onSave={saveNotes} onClose={() => setNoteRecord(null)} />}
+    {reportRecord && <ReportSheet record={records.find((record) => record.id === reportRecord.id) || reportRecord} onSave={saveReportSettings} onClose={() => setReportRecord(null)} />}
     {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
     {editRecord && <EditModal record={records.find((record) => record.id === editRecord.id) || editRecord} onSave={saveEdit} onDelete={deleteRecord} onClose={() => setEditRecord(null)} />}
     {settingsOpen && <SettingsSheet settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />}
