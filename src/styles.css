@@ -148,6 +148,7 @@ button:disabled { cursor: not-allowed; }
 .line-tools strong { font-size: 14px; }
 .line-tools span { color: var(--muted); margin-top: 4px; font-size: 11px; }
 .line-button { min-height: 43px; padding: 0 13px; color: #188247; background: white; border: 1px solid #56bf7b; white-space: nowrap; font-size: 12px; }
+.line-button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 .line-mark { margin-right: 6px; font-size: 10px; font-weight: 900; }
 .line-output { margin-bottom: 12px; padding: 13px; border-radius: 13px; background: white; border: 1px solid #c8e9d5; }
 .line-output-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }

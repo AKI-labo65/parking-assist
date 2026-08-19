@@ -201,6 +201,26 @@ function buildDetailedReportText(record, storeLabel) {
   ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])), record)
 }
 
+function buildImmediateLineText(record, storeLabel) {
+  const issueTime = formatTime(record.issuedAt || record.startedAt)
+  const settleLine = record.settledAt ? `${formatTime(record.settledAt)}…精算` : '精算時間不明'
+  const delayMinutes = getSettlementDelayMinutes(record)
+  const notes = [getNotes(record), record.reportMemo?.trim()].filter(Boolean).join('、')
+  return [
+    `【${storeLabel}】`,
+    'お疲れ様です。',
+    '90秒を超えた件です。念のためご報告させていただきます。',
+    '',
+    `駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`,
+    record.issuedAt ? `駐車→証明書発行${getElapsedSeconds(record)}秒` : '駐車→証明書発行できず',
+    '',
+    `${issueTime}…${record.issuedAt ? '証明書発行' : '駐車証明発行できず'}`,
+    settleLine,
+    delayMinutes !== null && delayMinutes > 0 ? `${delayMinutes}分` : '',
+    notes ? `＊${notes}` : '',
+  ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n')
+}
+
 function normalizeRecord(record) {
   const spot = normalizeSpot(record.spot)
   return {
@@ -213,6 +233,7 @@ function normalizeRecord(record) {
     notePresets: Array.isArray(record.notePresets) ? record.notePresets : [],
     memo: record.memo || '',
     exitCompletedAt: record.exitCompletedAt || null,
+    lineReportedAt: record.lineReportedAt || null,
     reportType: REPORT_TYPES.some((type) => type.id === record.reportType) ? record.reportType : 'normal',
     reportFlags: normalizeReportFlags(record.reportFlags),
     reportMemo: record.reportMemo || '',
@@ -514,7 +535,7 @@ function RecordRow({ record, now, action, actionLabel, actionTone = 'primary', o
     <div className="row-main">
       <div className={`spot-number ${getRecordSpot(record) ? '' : 'unknown'}`}><span>{getRecordSpotLabel(record)}</span></div>
       <div className="row-data">
-        <div className="row-topline"><StatusBadge status={record.status} />{record.exitCompletedAt && <span className="result-label completed-result">退店完了</span>}{overLimit && <span className="result-label warning">90秒超</span>}</div>
+        <div className="row-topline"><StatusBadge status={record.status} />{record.exitCompletedAt && <span className="result-label completed-result">退店完了</span>}{record.lineReportedAt && <span className="result-label completed-result">報告済み</span>}{overLimit && <span className="result-label warning">90秒超</span>}</div>
         <div className="metric-line"><span><small>経過</small><strong>{elapsed}秒</strong></span><span><small>証明書発行</small><strong>{formatTime(record.issuedAt)}</strong></span>{record.status !== 'parking' && <span><small>精算</small><strong>{formatTime(record.settledAt)}</strong></span>}</div>
         {notes && <div className="row-note"><Icon name="note" size={15} />{notes}</div>}
       </div>
@@ -625,7 +646,7 @@ function EditModal({ record, onSave, onDelete, onClose }) {
     const startedAt = parseDateTimeInput(form.startedAt) || record.startedAt
     const issuedAt = parseDateTimeInput(form.issuedAt)
     const settledAt = parseDateTimeInput(form.settledAt)
-    onSave(record.id, { spot, startedSpot: record.startedSpot || spot, spotConfirmedAt: issuedAt ? (record.spotConfirmedAt || issuedAt) : null, spotSource: spot ? 'edit' : 'unknown', startedAt, issuedAt, settledAt, exitCompletedAt: settledAt ? record.exitCompletedAt : null, status: settledAt ? 'settled' : issuedAt ? 'issued' : 'parking', notePresets: form.notePresets, memo: form.memo })
+    onSave(record.id, { spot, startedSpot: record.startedSpot || spot, spotConfirmedAt: issuedAt ? (record.spotConfirmedAt || issuedAt) : null, spotSource: spot ? 'edit' : 'unknown', startedAt, issuedAt, settledAt, exitCompletedAt: settledAt ? record.exitCompletedAt : null, lineReportedAt: settledAt ? record.lineReportedAt : null, status: settledAt ? 'settled' : issuedAt ? 'issued' : 'parking', notePresets: form.notePresets, memo: form.memo })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
@@ -653,6 +674,7 @@ function App() {
   const [editRecord, setEditRecord] = useState(null)
   const [issueRecord, setIssueRecord] = useState(null)
   const [lineText, setLineText] = useState('')
+  const [lineReportTargetIds, setLineReportTargetIds] = useState([])
   const [workLineText, setWorkLineText] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -705,14 +727,14 @@ function App() {
     const normalizedSpot = normalizeSpot(spot)
     const occupied = records.some((record) => getRecordSpot(record) === normalizedSpot && record.status !== 'settled')
     if (occupied) return notify(`${formatSpotLabel(normalizedSpot)}は現在対応中です`)
-    const record = { id: makeId(), spot: normalizedSpot, startedSpot: normalizedSpot, unknownLabel: null, spotConfirmedAt: null, spotSource: normalizedSpot ? 'start' : 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
+    const record = { id: makeId(), spot: normalizedSpot, startedSpot: normalizedSpot, unknownLabel: null, spotConfirmedAt: null, spotSource: normalizedSpot ? 'start' : 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, lineReportedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
     setRecords((current) => [...current, record])
     notify(`${formatSpotLabel(normalizedSpot, '番号未入力')}のタイマーを開始しました`)
   }
 
   const startUnknownRecord = () => {
     const unknownLabel = String(records.filter((record) => !getRecordSpot(record) && record.status !== 'settled').length + 1)
-    const record = { id: makeId(), spot: null, startedSpot: null, unknownLabel, spotConfirmedAt: null, spotSource: 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
+    const record = { id: makeId(), spot: null, startedSpot: null, unknownLabel, spotConfirmedAt: null, spotSource: 'unknown', startedAt: new Date().toISOString(), issuedAt: null, settledAt: null, exitCompletedAt: null, lineReportedAt: null, reportType: 'normal', reportFlags: normalizeReportFlags(), reportMemo: '', status: 'parking', notePresets: [], memo: '' }
     setRecords((current) => [...current, record])
     notify(`番号未入力 #${unknownLabel}のタイマーを開始しました`)
   }
@@ -738,7 +760,7 @@ function App() {
   }
 
   const settleRecord = (record) => {
-    updateRecord(record.id, { settledAt: new Date().toISOString(), exitCompletedAt: null, status: 'settled' })
+    updateRecord(record.id, { settledAt: new Date().toISOString(), exitCompletedAt: null, lineReportedAt: null, status: 'settled' })
     notify(`${getRecordSpotLabel(record)}の精算を記録しました`)
   }
 
@@ -755,7 +777,7 @@ function App() {
   }
 
   const saveReportSettings = (id, patch) => {
-    updateRecord(id, { reportType: patch.reportType || 'normal', reportFlags: normalizeReportFlags(patch.reportFlags), reportMemo: patch.reportMemo || '' })
+    updateRecord(id, { reportType: patch.reportType || 'normal', reportFlags: normalizeReportFlags(patch.reportFlags), reportMemo: patch.reportMemo || '', lineReportedAt: null })
     setReportRecord(null)
     notify('LINE報告の形式を保存しました')
   }
@@ -781,13 +803,20 @@ function App() {
     setReportRecord(null)
     setIssueRecord(null)
     setLineText('')
+    setLineReportTargetIds([])
     notify('記録を削除しました。LINE報告を再生成してください')
   }
 
   const generateLineText = () => {
-    // LINE報告は、退店完了済みの精算済み記録のうち90秒以内だけを対象にする。
-    const eligibleRecords = settledRecords.filter((record) => getElapsedSeconds(record, now) <= 90)
-    const reportRecords = eligibleRecords.filter((record) => record.exitCompletedAt)
+    if (!workReport.schedule.endedAt) {
+      const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
+      setLineReportTargetIds([])
+      setLineText([`【${storeLabel}】`, 'お疲れ様です。', '1分30秒以内の件は、シフト終了後にまとめて報告します。', '18:00勤務終了を記録してから生成してください。'].join('\n'))
+      notify('90秒以内の一括報告はシフト終了後です')
+      return
+    }
+    // 90秒以内は、シフト終了後に未報告分をまとめて対象にする。
+    const reportRecords = settledRecords.filter((record) => record.exitCompletedAt && getElapsedSeconds(record, now) <= 90 && !record.lineReportedAt)
     const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
     const sortedRecords = [...reportRecords].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt))
     const normalRecords = sortedRecords.filter((record) => !record.reportType || record.reportType === 'normal')
@@ -807,15 +836,32 @@ function App() {
     }
     detailedRecords.forEach((record) => sections.push(buildDetailedReportText(record, storeLabel)))
     if (sections.length === 0) {
-      const pendingText = eligibleRecords.length > 0 ? '退店完了を記録した90秒以内の件はありません。' : '90秒以内の記録はありません。'
-      sections.push([`【${storeLabel}】`, 'お疲れ様です。', pendingText].join('\n'))
+      sections.push([`【${storeLabel}】`, 'お疲れ様です。', '報告待ちの1分30秒以内の記録はありません。'].join('\n'))
     }
+    setLineReportTargetIds(reportRecords.map((record) => record.id))
     setLineText(sections.join('\n\n\n'))
-    notify('LINE用テキストを生成しました')
+    notify(reportRecords.length > 0 ? `${reportRecords.length}件のシフト終了後報告を生成しました` : '報告待ちの記録はありません')
+  }
+
+  const generateImmediateLineText = (record) => {
+    if (!record.exitCompletedAt) return notify('先に退店完了を記録してください')
+    if (getElapsedSeconds(record, now) <= 90) return notify('90秒以内の件はシフト終了後にまとめて報告します')
+    if (record.lineReportedAt) return notify('この記録はすでに報告済みです')
+    const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
+    setLineReportTargetIds([record.id])
+    setLineText(buildImmediateLineText(record, storeLabel))
+    notify(`${getRecordSpotLabel(record)}の都度報告用テキストを生成しました`)
   }
 
   const copyLineText = async () => {
     await copyToClipboard(lineText)
+    if (lineReportTargetIds.length > 0) {
+      const reportedAt = new Date().toISOString()
+      setRecords((current) => current.map((record) => lineReportTargetIds.includes(record.id) ? { ...record, lineReportedAt: reportedAt } : record))
+      setLineReportTargetIds([])
+      notify('コピーしました。報告済みにしました')
+      return
+    }
     notify('クリップボードにコピーしました')
   }
 
@@ -861,7 +907,7 @@ function App() {
 
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
 
-      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。退店完了後に報告形式を選べます。</p></div><span className="section-count">{settledRecords.length}件</span></div><div className="line-tools"><div><strong>LINE報告</strong><span>退店完了済み、かつ90秒以内の精算済み記録だけをまとめます。90秒超は除外されます。</span></div><button type="button" className="line-button" onClick={generateLineText}><span className="line-mark">LINE</span>LINE用テキストを生成</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={record.exitCompletedAt ? undefined : completeExit} actionLabel="退店完了" onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
+      {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。90秒以内は終了後、90秒超は都度報告します。</p></div><span className="section-count">{settledRecords.length}件</span></div><div className="line-tools"><div><strong>シフト終了後のまとめ報告</strong><span>{workReport.schedule.endedAt ? '退店完了済み・90秒以内の未報告記録をまとめます。' : '90秒以内の記録は18:00勤務終了後にまとめて報告します。'}</span></div><button type="button" className="line-button" disabled={!workReport.schedule.endedAt} onClick={generateLineText}><span className="line-mark">LINE</span>{workReport.schedule.endedAt ? 'まとめて報告文を生成' : '18:00終了後に生成'}</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => { const needsImmediateReport = Boolean(record.exitCompletedAt) && getElapsedSeconds(record, now) > 90 && !record.lineReportedAt; return <RecordRow key={record.id} record={record} now={now} action={record.exitCompletedAt ? (needsImmediateReport ? generateImmediateLineText : undefined) : completeExit} actionLabel={record.exitCompletedAt ? '都度報告' : '退店完了'} onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} /> })}</div>}</section>}
     </main>
     <footer className="app-footer">端末内に自動保存中 · {todayKey}</footer>
     <nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav>
