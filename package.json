@@ -7,19 +7,27 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "mobile:sync": "npm run build && cap sync android",
     "android:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
     "android:release": "npm run mobile:sync && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
-    "@capacitor/android": "latest",
-    "@capacitor/core": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite": "latest"
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@capacitor/cli": "latest",
-    "typescript": "^7.0.2"
+    "@capacitor/cli": "^8.5.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.5",
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11"
   }
 }

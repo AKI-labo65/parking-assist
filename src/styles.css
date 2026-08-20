@@ -339,3 +339,50 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* --- 90秒ルールの進捗表示 ------------------------------------------------ */
+.active-record.is-warning { background: rgba(255, 176, 32, .14); }
+.active-record.is-over { background: rgba(201, 47, 56, .22); }
+.timer-progress { margin-top: 6px; width: 100%; max-width: 190px; height: 5px; border-radius: 99px; background: rgba(255,255,255,.22); overflow: hidden; }
+.timer-progress span { display: block; height: 100%; border-radius: 99px; background: #7fe0a6; transition: width .3s linear; }
+.active-record.is-warning .timer-progress span { background: #ffd166; }
+.active-record.is-over .timer-progress span { background: #ff8d8d; }
+.timer-remaining { margin-top: 4px; color: #c3d1ee; font-size: 11px; font-weight: 800; }
+.active-record.is-warning .timer-remaining { color: #ffe1a3; }
+.active-record.is-over .timer-remaining { color: #ffc4c4; }
+
+/* --- 駐車位置ボタンの凡例 ------------------------------------------------ */
+.parking-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 9px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.parking-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; border: 1px solid #b8c6dd; background: white; }
+.legend-dot.legend-active { border-color: #167145; background: #d6f2df; }
+.legend-dot.legend-waiting { border-color: var(--blue-text); background: var(--blue-pale); }
+
+/* --- 履歴の件数サマリー -------------------------------------------------- */
+.history-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.history-summary span { padding: 6px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 800; }
+.history-summary span strong { color: var(--navy); font-size: 13px; font-variant-numeric: tabular-nums; }
+.history-summary span.is-warning { border-color: #efcf7e; background: var(--amber); color: var(--amber-text); }
+.history-summary span.is-warning strong { color: var(--amber-text); }
+
+/* --- 入力エラー・重複の注意表示 ------------------------------------------ */
+.spot-conflict-warning, .form-error { margin: 8px 0 0; padding: 9px 12px; border-radius: 10px; border: 1px solid #f0b9bd; background: #fdeeef; color: var(--red); font-size: 12px; font-weight: 800; }
+.spot-quick-grid button.occupied { border-color: #d9b3b6; background: #fbeff0; color: #a3555b; }
+.spot-quick-grid button.occupied { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.spot-quick-grid button.occupied::after { content: '使用中'; font-size: 8px; font-weight: 800; }
+
+/* --- 確認ダイアログ・取り消しトースト ------------------------------------ */
+.confirm-modal .modal-footer.confirm-footer { justify-content: flex-end; gap: 8px; }
+.toast { display: inline-flex; align-items: center; gap: 10px; }
+.toast > span { min-width: 0; }
+.toast.with-action { width: calc(100vw - 32px); max-width: 420px; padding: 11px 11px 11px 16px; border-radius: 16px; text-align: left; }
+.toast.with-action > span { flex: 1 1 auto; }
+.toast-action { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 7px 12px; border: 1px solid rgba(255,255,255,.5); border-radius: 99px; background: transparent; color: white; font-size: 12px; font-weight: 900; white-space: nowrap; }
+.toast-action:hover { background: rgba(255,255,255,.14); }
+/* シート表示中は、下部の確定ボタンを隠さないようにトーストを上へ寄せる。 */
+body.modal-open .toast { top: calc(14px + env(safe-area-inset-top)); bottom: auto; }
+
+@media (max-width: 560px) {
+  .confirm-modal .modal-footer.confirm-footer { flex-direction: row; align-items: center; }
+  .confirm-modal .modal-footer.confirm-footer button { flex: 1; }
+}
