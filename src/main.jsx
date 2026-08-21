@@ -332,7 +332,7 @@ function getRestartRule(date = new Date()) {
 function shouldRestartForStore(rule, store) {
   if (rule.required) return true
   if (rule.id !== 'saturday') return false
-  return Number(store?.inspectionSeconds) >= 8
+  return Number(store?.inspectionSeconds) >= 8 || Boolean(store?.restartStartedAt || store?.restartCompletedAt)
 }
 
 function workValue(value) {

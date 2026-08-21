@@ -105,6 +105,7 @@ describe('restart schedule', () => {
     expect(shouldRestartForStore(rule, { inspectionSeconds: '7' })).toBe(false)
     expect(shouldRestartForStore(rule, { inspectionSeconds: '8' })).toBe(true)
     expect(shouldRestartForStore(rule, { inspectionSeconds: '12' })).toBe(true)
+    expect(shouldRestartForStore(rule, { inspectionSeconds: '7', restartStartedAt: '2026-08-22T01:00:00.000Z' })).toBe(true)
   })
 })
 
