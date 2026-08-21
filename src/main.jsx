@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Capacitor } from '@capacitor/core'
 import './styles.css'
@@ -63,11 +63,16 @@ function formatDateTimeInput(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const offset = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  return new Date(date.getTime() - offset).toISOString().slice(0, 19)
 }
 
 function parseDateTimeInput(value) {
   return value ? new Date(value).toISOString() : null
+}
+
+function resolveEditedDateTimeInput(value, originalValue) {
+  if (value === formatDateTimeInput(originalValue)) return originalValue || null
+  return parseDateTimeInput(value)
 }
 
 function getElapsedSeconds(record, now = Date.now()) {
@@ -316,8 +321,18 @@ function loadWorkReport(dateKey) {
   }
 }
 
-function isRestartDay(date = new Date()) {
-  return date.getDay() === 3 || date.getDay() === 6
+function getRestartRule(date = new Date()) {
+  const day = date.getDay()
+  if (day === 3) return { id: 'wednesday', required: true, label: '水曜日は再起動対象日です' }
+  if (day === 0) return { id: 'sunday', required: true, label: '日曜日は再起動対象日です' }
+  if (day === 6) return { id: 'saturday', required: false, label: '土曜日は初期点検8秒以上で再起動します' }
+  return { id: 'none', required: false, label: '今日は再起動なしの勤務日です' }
+}
+
+function shouldRestartForStore(rule, store) {
+  if (rule.required) return true
+  if (rule.id !== 'saturday') return false
+  return Number(store?.inspectionSeconds) >= 8
 }
 
 function workValue(value) {
@@ -332,14 +347,14 @@ function buildWorkLineText(report, storeConfigs) {
   const sections = []
   const storeB = report.stores.storeB
 
-  WORK_STORES.forEach((storeConfig) => {
+  storeConfigs.forEach((storeConfig) => {
     const store = report.stores[storeConfig.id]
     if (!store.arrivalAt && !store.restartStartedAt) return
     const inspectionText = storeConfig.id === 'storeB' ? `初期点検　${workValue(store.inspectionSeconds)}秒` : `初期点検...${workValue(store.inspectionSeconds)}秒`
     sections.push([`【${storeConfig.label}】`, '', storeConfig.arrivalText, '', inspectionText].join('\n'))
   })
 
-  WORK_STORES.forEach((storeConfig) => {
+  storeConfigs.forEach((storeConfig) => {
     const store = report.stores[storeConfig.id]
     if (!store.restartCompletedAt) return
     sections.push([
@@ -381,8 +396,6 @@ function buildWorkLineText(report, storeConfigs) {
       '',
       'お疲れ様でした。',
       finishMemo ? `\n${finishMemo}` : '',
-      '',
-      'お疲れ様でした。',
     ].join('\n'))
   }
 
@@ -400,6 +413,92 @@ async function copyToClipboard(text) {
     document.execCommand('copy')
     textarea.remove()
   }
+}
+
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'textarea:not([disabled])',
+  'select:not([disabled])',
+  '[href]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function useDialogFocus(onClose) {
+  const dialogRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return undefined
+
+    const previousFocus = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    const backdrop = dialog.closest('.modal-backdrop')
+    const siblings = []
+    let branch = backdrop
+    while (branch?.parentElement) {
+      siblings.push(...[...branch.parentElement.children].filter((element) => element !== branch))
+      if (branch.parentElement === document.body) break
+      branch = branch.parentElement
+    }
+    const siblingState = [...new Set(siblings)].map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute('aria-hidden'),
+    }))
+
+    siblingState.forEach(({ element }) => {
+      element.inert = true
+      element.setAttribute('aria-hidden', 'true')
+    })
+    document.body.style.overflow = 'hidden'
+
+    const initialFocus = dialog.querySelector('[data-dialog-initial-focus]') || dialog
+    initialFocus.focus()
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusable = [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)]
+        .filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+      siblingState.forEach(({ element, inert, ariaHidden }) => {
+        element.inert = inert
+        if (ariaHidden === null) element.removeAttribute('aria-hidden')
+        else element.setAttribute('aria-hidden', ariaHidden)
+      })
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
+    }
+  }, [])
+
+  return dialogRef
 }
 
 function Icon({ name, size = 20 }) {
@@ -422,7 +521,7 @@ function NavigationTab({ tab, activeView, onSelect, mobile = false }) {
   const iconName = { record: 'note', issued: 'check', history: 'clock' }[tab.id]
   return <button type="button" className={`${activeView === tab.id ? 'active ' : ''}${mobile ? 'mobile-tab' : ''}`} onClick={() => onSelect(tab.id)} aria-current={activeView === tab.id ? 'page' : undefined}>
     {mobile && <Icon name={iconName} size={18} />}
-    <span>{tab.label}</span>
+    <span>{mobile ? tab.mobileLabel || tab.label : tab.label}</span>
     {tab.count > 0 && <span className={mobile ? 'mobile-tab-count' : 'tab-count'}>{tab.count}</span>}
   </button>
 }
@@ -440,7 +539,18 @@ function WorkNumberField({ label, value, suffix, onChange }) {
   return <label className="work-field"><span>{label}</span><div><input type="number" min="0" inputMode="numeric" value={value} onChange={(event) => onChange(event.target.value)} placeholder="—" /><small>{suffix}</small></div></label>
 }
 
-function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
+function ConfirmActionDialog({ title, detail, confirmLabel, danger = false, onConfirm, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section ref={dialogRef} className="edit-modal confirm-action-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title" tabIndex="-1">
+      <div className="modal-heading"><div><span className="eyebrow">勤務時間の記録</span><h2 id="confirm-action-title">{title}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
+      <p className="spot-confirm-help">{detail}</p>
+      <div className="sheet-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className={danger ? 'delete-all-confirm-button' : 'primary-button'} onClick={onConfirm}>{confirmLabel}</button></div>
+    </section>
+  </div>
+}
+
+function WorkStoreCard({ config, data, restartRequired, restartRule, onPatch, onNotify }) {
   const hasArrival = Boolean(data.arrivalAt)
   const hasRestartStarted = Boolean(data.restartStartedAt)
   const hasRestartCompleted = Boolean(data.restartCompletedAt)
@@ -474,8 +584,8 @@ function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
         {config.hasCommute && <div className="work-choice"><span>移動手段</span><div>{COMMUTE_OPTIONS.map((choice) => <button key={choice} type="button" className={data.commute === choice ? 'selected' : ''} onClick={() => onPatch({ commute: choice })}>{choice}</button>)}</div></div>}
       </div>
       <section className={`work-restart ${hasRestartCompleted ? 'complete' : ''}`}>
-        <div className="work-subheading"><strong>精算機の再起動</strong><span>{restartDay ? '水曜・土曜' : '今日は対象外'}</span></div>
-        {!restartDay ? <p className="work-muted">今日は再起動の報告はありません。</p> : <>
+        <div className="work-subheading"><strong>精算機の再起動</strong><span>{restartRequired ? (restartRule.id === 'saturday' ? '初期点検8秒以上' : '本日の対象日') : restartRule.id === 'saturday' ? '初期点検8秒未満' : '今日は対象外'}</span></div>
+        {!restartRequired ? <p className="work-muted">{restartRule.id === 'saturday' ? '初期点検が8秒以上になった場合のみ再起動します。' : '今日は再起動の報告はありません。'}</p> : <>
           <button type="button" className="secondary-button work-wide-button" disabled={!hasArrival || hasRestartStarted} onClick={markRestartStart}>{hasRestartStarted ? '再起動開始を記録済み' : '再起動開始を記録'}</button>
           {hasRestartStarted && <><div className="work-restart-fields"><WorkNumberField label="再起動前" value={data.restartBeforeSeconds} suffix="秒" onChange={(value) => onPatch({ restartBeforeSeconds: value })} /><WorkNumberField label="再起動後" value={data.restartAfterSeconds} suffix="秒" onChange={(value) => onPatch({ restartAfterSeconds: value })} /><WorkNumberField label="QRリーダー" value={data.qrMinutes} suffix="分" onChange={(value) => onPatch({ qrMinutes: value })} /><WorkNumberField label="クレカ立ち上がり" value={data.creditMinutes} suffix="分" onChange={(value) => onPatch({ creditMinutes: value })} /><button type="button" className="primary-button work-wide-button" disabled={hasRestartCompleted} onClick={markRestartComplete}>{hasRestartCompleted ? <><Icon name="check" size={19} />復旧結果を記録済み</> : '復旧結果を記録'}</button></div><div className="work-message-options"><span>再起動後の一言（任意）</span><div>{RESTART_MESSAGES.map((message) => <button key={message} type="button" className={data.restartNote === message ? 'selected' : ''} onClick={() => onPatch({ restartNote: message })}>{message}</button>)}</div><input className="text-input" value={data.restartNote} onChange={(event) => onPatch({ restartNote: event.target.value })} placeholder="自由入力もできます" /></div></>}
         </>}
@@ -486,25 +596,67 @@ function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
 }
 
 function WorkScheduleCard({ schedule, onPatch, onNotify }) {
+  const [pendingAction, setPendingAction] = useState(null)
   const items = [
     { key: 'startedAt', label: '10:00 勤務開始', detail: '配置につきました' },
     { key: 'breakAt', label: '12:00 休憩開始', detail: '配置一時解除' },
     { key: 'resumedAt', label: '15:00 業務再開', detail: '配置につきました' },
     { key: 'endedAt', label: '18:00 勤務終了', detail: '配置解除・店舗挨拶完了' },
   ]
-  const mark = (item) => {
-    if (schedule[item.key]) return
-    onPatch({ [item.key]: new Date().toISOString() })
-    onNotify(`${item.label}を記録しました`)
+  const applyAction = (item, action) => {
+    if (action === 'remove') {
+      onPatch({ [item.key]: null })
+      onNotify(`${item.label}の記録を取り消しました`)
+    } else {
+      onPatch({ [item.key]: new Date().toISOString() })
+      onNotify(`${item.label}を記録しました`)
+    }
+    setPendingAction(null)
   }
-  return <article className="work-schedule-card"><div className="section-heading work-heading"><div><h2>勤務時間</h2><p>現場で押した時刻を保存し、報告文に反映します。</p></div></div><div className="work-schedule-grid">{items.map((item) => <button key={item.key} type="button" className={`work-schedule-button ${schedule[item.key] ? 'completed' : ''}`} disabled={Boolean(schedule[item.key])} onClick={() => mark(item)}><span>{schedule[item.key] ? <Icon name="check" size={19} /> : <span className="schedule-time">{item.label.slice(0, 5)}</span>}</span><strong>{schedule[item.key] ? `${item.label} 済` : item.label}</strong><small>{schedule[item.key] ? `記録 ${formatTime(schedule[item.key])}` : item.detail}</small></button>)}</div><div className="work-counts"><WorkNumberField label="店舗駐車券預り" value={schedule.parkingTickets} suffix="枚" onChange={(value) => onPatch({ parkingTickets: value })} /><WorkNumberField label="お客様から返却" value={schedule.returnedTickets} suffix="枚" onChange={(value) => onPatch({ returnedTickets: value })} /><WorkNumberField label="お客様へ配布" value={schedule.distributedTickets} suffix="枚" onChange={(value) => onPatch({ distributedTickets: value })} /></div><div className="work-message-options work-general-message"><span>途中の報告（任意）</span><div>{COMMON_WORK_MESSAGES.map((message) => <button key={message} type="button" className={schedule.extraMessage === message ? 'selected' : ''} onClick={() => onPatch({ extraMessage: message })}>{message}</button>)}</div><input className="text-input" value={schedule.extraMessage} onChange={(event) => onPatch({ extraMessage: event.target.value })} placeholder="自由入力もできます" /></div><label className="field-label work-memo-label" htmlFor="work-finish-memo">終了時の補足（任意）</label><textarea id="work-finish-memo" className="text-input memo-input" value={schedule.finishMemo} onChange={(event) => onPatch({ finishMemo: event.target.value })} rows="2" placeholder="例：サービス券受取が少なかったため配布数が増加" /></article>
+  const mark = (item) => {
+    if (schedule[item.key]) {
+      setPendingAction({
+        item,
+        action: 'remove',
+        title: `${item.label}を取り消しますか？`,
+        detail: '記録した時刻が削除され、勤務報告にも含まれなくなります。',
+        confirmLabel: '記録を取り消す',
+        danger: true,
+      })
+      return
+    }
+
+    const itemIndex = items.findIndex(({ key }) => key === item.key)
+    const missingPrevious = items.slice(0, itemIndex).filter(({ key }) => !schedule[key])
+    if (missingPrevious.length > 0) {
+      const missingLabels = missingPrevious.map(({ label }) => label).join('、')
+      setPendingAction({
+        item,
+        action: 'record',
+        title: `${item.label}を先に記録しますか？`,
+        detail: `${missingLabels}が未記録です。順番を確認してから進めてください。`,
+        confirmLabel: 'このまま記録',
+        danger: false,
+      })
+      return
+    }
+
+    applyAction(item, 'record')
+  }
+  return <>
+    <article className="work-schedule-card"><div className="section-heading work-heading"><div><h2>勤務時間</h2><p>現場で押した時刻を保存し、報告文に反映します。</p></div></div><div className="work-schedule-grid">{items.map((item) => <button key={item.key} type="button" className={`work-schedule-button ${schedule[item.key] ? 'completed' : ''}`} onClick={() => mark(item)} aria-label={schedule[item.key] ? `${item.label}の記録を取り消す` : item.label}><span>{schedule[item.key] ? <Icon name="check" size={19} /> : <span className="schedule-time">{item.label.slice(0, 5)}</span>}</span><strong>{schedule[item.key] ? `${item.label} 済` : item.label}</strong><small>{schedule[item.key] ? `記録 ${formatTime(schedule[item.key])}・タップで取り消し` : item.detail}</small></button>)}</div><div className="work-counts"><WorkNumberField label="店舗駐車券預り" value={schedule.parkingTickets} suffix="枚" onChange={(value) => onPatch({ parkingTickets: value })} /><WorkNumberField label="お客様から返却" value={schedule.returnedTickets} suffix="枚" onChange={(value) => onPatch({ returnedTickets: value })} /><WorkNumberField label="お客様へ配布" value={schedule.distributedTickets} suffix="枚" onChange={(value) => onPatch({ distributedTickets: value })} /></div><div className="work-message-options work-general-message"><span>途中の報告（任意）</span><div>{COMMON_WORK_MESSAGES.map((message) => <button key={message} type="button" className={schedule.extraMessage === message ? 'selected' : ''} onClick={() => onPatch({ extraMessage: message })}>{message}</button>)}</div><input className="text-input" value={schedule.extraMessage} onChange={(event) => onPatch({ extraMessage: event.target.value })} placeholder="自由入力もできます" /></div><label className="field-label work-memo-label" htmlFor="work-finish-memo">終了時の補足（任意）</label><textarea id="work-finish-memo" className="text-input memo-input" value={schedule.finishMemo} onChange={(event) => onPatch({ finishMemo: event.target.value })} rows="2" placeholder="例：サービス券受取が少なかったため配布数が増加" /></article>
+    {pendingAction && <ConfirmActionDialog title={pendingAction.title} detail={pendingAction.detail} confirmLabel={pendingAction.confirmLabel} danger={pendingAction.danger} onConfirm={() => applyAction(pendingAction.item, pendingAction.action)} onClose={() => setPendingAction(null)} />}
+  </>
 }
 
-function WorkReportView({ report, storeConfigs, restartDay, lineText, onStorePatch, onSchedulePatch, onNotify, onGenerate, onCopy }) {
-  return <section className="view-section" aria-labelledby="work-heading"><div className="section-heading"><div><h1 id="work-heading">勤務報告</h1><p>店舗の到着・再起動・休憩・終了を順番に記録します。</p></div><span className={`section-count ${restartDay ? 'restart-day-label' : ''}`}>{restartDay ? '本日は再起動日' : '再起動なし'}</span></div><div className={`work-rule-banner ${restartDay ? 'restart' : ''}`}><span className="tip-icon">!</span><span><strong>{restartDay ? '今日は水曜・土曜の再起動対象日です' : '今日は再起動なしの勤務日です'}</strong><br />{storeConfigs.map((config) => config.label).join(' → ')} → 10:00開始 → 12:00休憩 → 15:00再開 → 18:00終了</span></div><div className="work-store-list">{storeConfigs.map((config) => <WorkStoreCard key={config.id} config={config} data={report.stores[config.id]} restartDay={restartDay} onPatch={(patch) => onStorePatch(config.id, patch)} onNotify={onNotify} />)}</div><WorkScheduleCard schedule={report.schedule} onPatch={onSchedulePatch} onNotify={onNotify} /><div className="line-tools work-line-tools"><div><strong>勤務報告を作成</strong><span>現在記録されている内容だけで文章をまとめます。</span></div><button type="button" className="line-button" onClick={onGenerate}><span className="line-mark">LINE</span>報告文を生成</button></div>{lineText && <div className="line-output work-line-output"><div className="line-output-heading"><strong>生成された勤務報告</strong><button type="button" className="copy-button" onClick={onCopy}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="勤務報告用テキスト" /></div>}</section>
+function WorkReportView({ report, storeConfigs, restartRule, lineText, onStorePatch, onSchedulePatch, onNotify, onGenerate, onCopy }) {
+  const restartRequiredByStore = storeConfigs.map((config) => shouldRestartForStore(restartRule, report.stores[config.id]))
+  const hasRestartTarget = restartRequiredByStore.some(Boolean)
+  return <section className="view-section" aria-labelledby="work-heading"><div className="section-heading"><div><h1 id="work-heading">勤務報告</h1><p>店舗の到着・再起動・休憩・終了を順番に記録します。</p></div><span className={`section-count ${hasRestartTarget ? 'restart-day-label' : ''}`}>{restartRule.required ? '本日は再起動日' : restartRule.id === 'saturday' ? (hasRestartTarget ? '再起動対象あり' : '初期点検で判定') : '再起動なし'}</span></div><div className={`work-rule-banner ${hasRestartTarget ? 'restart' : ''}`}><span className="tip-icon">!</span><span><strong>{restartRule.label}</strong><br />{storeConfigs.map((config) => config.label).join(' → ')} → 10:00開始 → 12:00休憩 → 15:00再開 → 18:00終了</span></div><div className="work-store-list">{storeConfigs.map((config, index) => <WorkStoreCard key={config.id} config={config} data={report.stores[config.id]} restartRequired={restartRequiredByStore[index]} restartRule={restartRule} onPatch={(patch) => onStorePatch(config.id, patch)} onNotify={onNotify} />)}</div><WorkScheduleCard schedule={report.schedule} onPatch={onSchedulePatch} onNotify={onNotify} /><div className="line-tools work-line-tools"><div><strong>勤務報告を作成</strong><span>現在記録されている内容だけで文章をまとめます。</span></div><button type="button" className="line-button" onClick={onGenerate}><span className="line-mark">LINE</span>報告文を生成</button></div>{lineText && <div className="line-output work-line-output"><div className="line-output-heading"><strong>生成された勤務報告</strong><button type="button" className="copy-button" onClick={onCopy}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="勤務報告用テキスト" /></div>}</section>
 }
 
 function SettingsSheet({ settings, onSave, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
   const [form, setForm] = useState({
     storeA: settings.storeLabels.storeA,
     storeB: settings.storeLabels.storeB,
@@ -515,12 +667,12 @@ function SettingsSheet({ settings, onSave, onClose }) {
     onSave({ storeLabels: { storeA: form.storeA.trim() || '店舗A', storeB: form.storeB.trim() || '店舗B' } })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-sheet-title">
+    <section ref={dialogRef} className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-sheet-title" tabIndex="-1">
       <div className="sheet-handle" />
       <div className="sheet-heading"><div><span className="eyebrow">端末内に保存</span><h2 id="settings-sheet-title">店舗名設定</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <p className="spot-confirm-help">店舗名は公開ページやコードには保存されず、この端末のブラウザ内だけに保存されます。</p>
       <form onSubmit={submit}>
-        <div className="form-grid"><label className="field-label">1店舗目<input className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：店舗A" /></label><label className="field-label">2店舗目<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：店舗B" /></label></div>
+        <div className="form-grid"><label className="field-label">1店舗目<input data-dialog-initial-focus className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：店舗A" /></label><label className="field-label">2店舗目<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：店舗B" /></label></div>
         <div className="sheet-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button">店舗名を保存</button></div>
       </form>
     </section>
@@ -567,19 +719,20 @@ function ParkingGrid({ records, onStart, onOpenRecord }) {
 }
 
 function SpotConfirmSheet({ record, onConfirm, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
   const initialSpot = getRecordSpot(record)
   const [spot, setSpot] = useState(initialSpot || '')
   if (!record) return null
   const quickSpots = PARKING_SPOTS
   const hasKnownSpot = Boolean(initialSpot)
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="bottom-sheet spot-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="spot-confirm-title">
+    <section ref={dialogRef} className="bottom-sheet spot-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="spot-confirm-title" tabIndex="-1">
       <div className="sheet-handle" />
       <div className="sheet-heading"><div><span className="eyebrow">証明書発行と同時に確定</span><h2 id="spot-confirm-title">番号を入力して発行</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <p className="spot-confirm-help">利用者さまに駐車位置番号を確認し、入力してから発行を確定してください。開始時の番号が違っていても修正できます。</p>
       {hasKnownSpot && <p className="spot-confirm-started">開始時の番号：<strong>{formatSpotLabel(initialSpot)}</strong></p>}
       <label className="field-label" htmlFor="certificate-spot">駐車位置番号（入力必須・数字／英字）</label>
-      <input id="certificate-spot" className="text-input spot-confirm-input" type="text" inputMode="numeric" value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17（直接入力する場合）" />
+      <input id="certificate-spot" data-dialog-initial-focus className="text-input spot-confirm-input" type="text" inputMode="numeric" value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17（直接入力する場合）" />
       <div className="spot-quick-grid" aria-label="駐車位置番号の候補">{quickSpots.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div>
       <div className="spot-confirm-actions"><button type="button" className="primary-button" disabled={!normalizeSpot(spot)} onClick={() => onConfirm(record.id, spot)}>{spot ? `${formatSpotLabel(spot)}で発行確定` : '番号を入力してください'}</button><button type="button" className="exception-button" onClick={() => onConfirm(record.id, '')}>番号不明のまま発行（例外）</button></div>
     </section>
@@ -587,12 +740,13 @@ function SpotConfirmSheet({ record, onConfirm, onClose }) {
 }
 
 function NoteSheet({ record, onSave, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
   const [presets, setPresets] = useState(record?.notePresets || [])
   const [memo, setMemo] = useState(record?.memo || '')
   if (!record) return null
   const togglePreset = (note) => setPresets((current) => current.includes(note) ? current.filter((item) => item !== note) : [...current, note])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="note-sheet-title">
+    <section ref={dialogRef} className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="note-sheet-title" tabIndex="-1">
       <div className="sheet-handle" />
       <div className="sheet-heading"><div><span className="eyebrow">{getRecordSpotLabel(record)}の記録</span><h2 id="note-sheet-title">例外メモを選択</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <div className="note-options">{COMMON_NOTES.map((note) => <button key={note} type="button" className={`note-option ${presets.includes(note) ? 'selected' : ''}`} onClick={() => togglePreset(note)}>{presets.includes(note) && <Icon name="check" size={18} />}{note}</button>)}</div>
@@ -604,6 +758,7 @@ function NoteSheet({ record, onSave, onClose }) {
 }
 
 function ReportSheet({ record, onSave, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
   const [reportType, setReportType] = useState(record?.reportType || 'normal')
   const [flags, setFlags] = useState(normalizeReportFlags(record?.reportFlags))
   const [reportMemo, setReportMemo] = useState(record?.reportMemo || '')
@@ -611,7 +766,7 @@ function ReportSheet({ record, onSave, onClose }) {
   const toggleFlag = (flag) => setFlags((current) => ({ ...current, [flag]: !current[flag] }))
   const visibleFlags = reportType === 'issuanceDefect' ? REPORT_FLAGS.filter((flag) => flag.id === 'issuanceFailedOnce') : REPORT_FLAGS.filter((flag) => flag.id !== 'issuanceFailedOnce')
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="report-sheet-title">
+    <section ref={dialogRef} className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="report-sheet-title" tabIndex="-1">
       <div className="sheet-handle" />
       <div className="sheet-heading"><div><span className="eyebrow">{getRecordSpotLabel(record)}の退店後報告</span><h2 id="report-sheet-title">LINE報告パターン</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <p className="spot-confirm-help">精算後、必要に応じて選択してください。選んだ形式と補足は、この記録のLINE報告に反映されます。</p>
@@ -630,6 +785,7 @@ function ReportSheet({ record, onSave, onClose }) {
 }
 
 function EditModal({ record, onSave, onDelete, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
   const [form, setForm] = useState({
     spot: record.spot,
     startedAt: formatDateTimeInput(record.startedAt),
@@ -643,16 +799,16 @@ function EditModal({ record, onSave, onDelete, onClose }) {
   const submit = (event) => {
     event.preventDefault()
     const spot = normalizeSpot(form.spot)
-    const startedAt = parseDateTimeInput(form.startedAt) || record.startedAt
-    const issuedAt = parseDateTimeInput(form.issuedAt)
-    const settledAt = parseDateTimeInput(form.settledAt)
+    const startedAt = resolveEditedDateTimeInput(form.startedAt, record.startedAt) || record.startedAt
+    const issuedAt = resolveEditedDateTimeInput(form.issuedAt, record.issuedAt)
+    const settledAt = resolveEditedDateTimeInput(form.settledAt, record.settledAt)
     onSave(record.id, { spot, startedSpot: record.startedSpot || spot, spotConfirmedAt: issuedAt ? (record.spotConfirmedAt || issuedAt) : null, spotSource: spot ? 'edit' : 'unknown', startedAt, issuedAt, settledAt, exitCompletedAt: settledAt ? record.exitCompletedAt : null, lineReportedAt: settledAt ? record.lineReportedAt : null, status: settledAt ? 'settled' : issuedAt ? 'issued' : 'parking', notePresets: form.notePresets, memo: form.memo })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+    <section ref={dialogRef} className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title" tabIndex="-1">
       <div className="modal-heading"><div><span className="eyebrow">記録を修正</span><h2 id="edit-modal-title">{getRecordSpotLabel(record)}の詳細</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <form onSubmit={submit}>
-        <div className="form-grid"><label className="field-label">駐車位置番号<input className="text-input" type="text" inputMode="numeric" placeholder="未入力でも可" value={form.spot || ''} onChange={(event) => update('spot', event.target.value)} /></label><label className="field-label">駐車開始<input className="text-input" type="datetime-local" value={form.startedAt} onChange={(event) => update('startedAt', event.target.value)} /></label><label className="field-label">証明書発行<input className="text-input" type="datetime-local" value={form.issuedAt} onChange={(event) => update('issuedAt', event.target.value)} /></label><label className="field-label">精算時刻<input className="text-input" type="datetime-local" value={form.settledAt} onChange={(event) => update('settledAt', event.target.value)} /></label></div>
+        <div className="form-grid"><label className="field-label">駐車位置番号<input data-dialog-initial-focus className="text-input" type="text" inputMode="numeric" placeholder="未入力でも可" value={form.spot || ''} onChange={(event) => update('spot', event.target.value)} /></label><label className="field-label">駐車開始<input className="text-input" type="datetime-local" step="1" value={form.startedAt} onChange={(event) => update('startedAt', event.target.value)} /></label><label className="field-label">証明書発行<input className="text-input" type="datetime-local" step="1" value={form.issuedAt} onChange={(event) => update('issuedAt', event.target.value)} /></label><label className="field-label">精算時刻<input className="text-input" type="datetime-local" step="1" value={form.settledAt} onChange={(event) => update('settledAt', event.target.value)} /></label></div>
         <div className="field-label">例外メモ</div><div className="note-options compact">{COMMON_NOTES.map((note) => <button key={note} type="button" className={`note-option ${form.notePresets.includes(note) ? 'selected' : ''}`} onClick={() => togglePreset(note)}>{form.notePresets.includes(note) && <Icon name="check" size={16} />}{note}</button>)}</div>
         <label className="field-label" htmlFor="edit-memo">自由メモ</label><textarea id="edit-memo" className="text-input memo-input" value={form.memo} onChange={(event) => update('memo', event.target.value)} rows="3" placeholder="メモを入力してください" />
         <div className="modal-footer"><button type="button" className="subtle-button danger delete-record" onClick={() => onDelete(record)}>この記録を削除</button><div className="footer-right"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button">変更を保存</button></div></div>
@@ -661,14 +817,26 @@ function EditModal({ record, onSave, onDelete, onClose }) {
   </div>
 }
 
+function DeleteAllDialog({ count, onConfirm, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section ref={dialogRef} className="edit-modal delete-all-modal" role="dialog" aria-modal="true" aria-labelledby="delete-all-title" tabIndex="-1">
+      <div className="modal-heading"><div><span className="eyebrow">当日の履歴</span><h2 id="delete-all-title">履歴を全件削除しますか？</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
+      <p className="spot-confirm-help">精算済みの履歴{count}件を削除します。駐車中・精算待ちの記録は残ります。</p>
+      <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="delete-all-confirm-button" onClick={onConfirm}><Icon name="trash" size={17} />削除する</button></div>
+    </section>
+  </div>
+}
+
 function App() {
-  const todayKey = getDateKey()
-  const restartDay = isRestartDay()
+  const [todayKey, setTodayKey] = useState(() => getDateKey())
+  const todayKeyRef = useRef(todayKey)
+  const [now, setNow] = useState(Date.now())
+  const restartRule = getRestartRule(new Date(now))
   const [settings, setSettings] = useState(() => loadSettings())
   const [records, setRecords] = useState(() => loadRecords(todayKey))
   const [workReport, setWorkReport] = useState(() => loadWorkReport(todayKey))
   const [activeView, setActiveView] = useState('record')
-  const [now, setNow] = useState(Date.now())
   const [noteRecord, setNoteRecord] = useState(null)
   const [reportRecord, setReportRecord] = useState(null)
   const [editRecord, setEditRecord] = useState(null)
@@ -686,7 +854,18 @@ function App() {
   }), [settings])
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const timer = window.setInterval(() => {
+      const nextNow = Date.now()
+      const nextDateKey = getDateKey(new Date(nextNow))
+      setNow(nextNow)
+      if (nextDateKey === todayKeyRef.current) return
+
+      todayKeyRef.current = nextDateKey
+      setTodayKey(nextDateKey)
+      setRecords(loadRecords(nextDateKey))
+      setWorkReport(loadWorkReport(nextDateKey))
+      setToast('日付が変わったため、新しい日の記録へ切り替えました')
+    }, 1000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -703,6 +882,15 @@ function App() {
   }, [settings])
 
   useEffect(() => {
+    setLineText('')
+    setLineReportTargetIds([])
+  }, [records])
+
+  useEffect(() => {
+    setWorkLineText('')
+  }, [workReport])
+
+  useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(''), 2600)
     return () => window.clearTimeout(timer)
@@ -711,6 +899,7 @@ function App() {
   useEffect(() => {
     // Native Android builds use the bundled files directly. Keeping a Service
     // Worker there can make an app update continue serving the previous bundle.
+    if (!import.meta.env.PROD) return
     if (Capacitor.isNativePlatform()) return
     if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
   }, [])
@@ -767,7 +956,9 @@ function App() {
   }
 
   const saveNotes = (id, patch) => {
-    updateRecord(id, { ...patch, exitCompletedAt: patch.status === 'settled' && patch.settledAt ? (current.exitCompletedAt || patch.settledAt) : null })
+    const current = records.find((record) => record.id === id)
+    if (!current) return
+    updateRecord(id, { ...patch, exitCompletedAt: current.exitCompletedAt, lineReportedAt: null })
     setNoteRecord(null)
     notify('メモを保存しました')
   }
@@ -786,7 +977,7 @@ function App() {
       notify(`${formatSpotLabel(nextSpot)}は現在対応中です。番号を確認してください`)
       return
     }
-    updateRecord(id, patch)
+    updateRecord(id, { ...patch, lineReportedAt: null })
     setEditRecord(null)
     notify(`${formatSpotLabel(nextSpot, '番号未入力')}の記録を更新しました`)
   }
@@ -886,6 +1077,8 @@ function App() {
   const saveSettings = (nextSettings) => {
     setSettings(nextSettings)
     setSettingsOpen(false)
+    setLineText('')
+    setLineReportTargetIds([])
     setWorkLineText('')
     notify('店舗名を端末内に保存しました')
   }
@@ -898,7 +1091,7 @@ function App() {
   const tabItems = [
     { id: 'record', label: '記録' },
     { id: 'work', label: '勤務報告' },
-    { id: 'issued', label: '発行済み・精算待ち', count: issuedRecords.length },
+    { id: 'issued', label: '発行済み・精算待ち', mobileLabel: '精算待ち', count: issuedRecords.length },
     { id: 'history', label: '履歴', count: settledRecords.length },
   ]
   const primaryTabItems = tabItems.filter((tab) => tab.id !== 'work')
@@ -912,11 +1105,11 @@ function App() {
       {activeView === 'record' && <section className="view-section" aria-labelledby="record-heading">
         <div className="section-heading"><div><h1 id="record-heading">駐車番号を選択</h1><p>番号が分かるときはタップ。分からないときは発行時に入力できます。</p></div><span className="section-count">対応中 {parkingRecords.length}件</span></div>
         {parkingRecords.length > 0 && <div className="active-panel"><div className="active-panel-heading"><span className="live-dot" />タイマー動作中（発行時に番号入力）</div>{parkingRecords.map((record) => <div className="active-record" key={record.id}><div className="active-summary"><strong className={!getRecordSpot(record) ? 'unknown' : ''}>{getRecordSpotLabel(record)}</strong><div><StatusBadge status="parking" /><div className="active-time">{getElapsedSeconds(record, now)}<small>秒</small><span>{formatDuration(getElapsedSeconds(record, now))}</span></div></div></div><div className="active-actions"><button type="button" className="primary-button issue-button" onClick={() => issueCertificate(record)}><Icon name="check" size={20} /><span>証明書発行＋番号入力</span></button><div className="active-more-actions"><button type="button" className="secondary-button note-button" onClick={() => setNoteRecord(record)}><Icon name="note" size={16} />メモ</button><button type="button" className="secondary-button note-button" onClick={() => setEditRecord(record)}><Icon name="edit" size={16} />編集</button><button type="button" className="secondary-button note-button danger" onClick={() => deleteRecord(record)}><Icon name="trash" size={16} />削除</button></div></div></div>)}</div>}
-        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>左 1〜8　右 21〜9</span></div><ParkingGrid records={records} onStart={startRecord} onOpenRecord={setEditRecord} /><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button></div>
+        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>左 1〜8　右 21〜9</span></div><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button><ParkingGrid records={records} onStart={startRecord} onOpenRecord={setEditRecord} /></div>
         {parkingRecords.length === 0 && <EmptyState title="タイマー動作中の車両はありません" detail="車が駐車したら、番号ボタンまたは番号未入力で開始を押してください。" />}
       </section>}
 
-      {activeView === 'work' && <WorkReportView report={workReport} storeConfigs={storeConfigs} restartDay={restartDay} lineText={workLineText} onStorePatch={updateWorkStore} onSchedulePatch={updateWorkSchedule} onNotify={notify} onGenerate={generateWorkLineText} onCopy={copyWorkLineText} />}
+      {activeView === 'work' && <WorkReportView report={workReport} storeConfigs={storeConfigs} restartRule={restartRule} lineText={workLineText} onStorePatch={updateWorkStore} onSchedulePatch={updateWorkSchedule} onNotify={notify} onGenerate={generateWorkLineText} onCopy={copyWorkLineText} />}
 
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
 
@@ -928,10 +1121,29 @@ function App() {
     {reportRecord && <ReportSheet record={records.find((record) => record.id === reportRecord.id) || reportRecord} onSave={saveReportSettings} onClose={() => setReportRecord(null)} />}
     {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
     {editRecord && <EditModal record={records.find((record) => record.id === editRecord.id) || editRecord} onSave={saveEdit} onDelete={deleteRecord} onClose={() => setEditRecord(null)} />}
-    {deleteAllOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteAllOpen(false)}><section className="edit-modal delete-all-modal" role="dialog" aria-modal="true" aria-labelledby="delete-all-title"><div className="modal-heading"><div><span className="eyebrow">当日の履歴</span><h2 id="delete-all-title">履歴を全件削除しますか？</h2></div><button type="button" className="icon-button" onClick={() => setDeleteAllOpen(false)} aria-label="閉じる"><Icon name="close" /></button></div><p className="spot-confirm-help">精算済みの履歴{settledRecords.length}件を削除します。駐車中・精算待ちの記録は残ります。</p><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setDeleteAllOpen(false)}>キャンセル</button><button type="button" className="delete-all-confirm-button" onClick={deleteAllSettledRecords}><Icon name="trash" size={17} />削除する</button></div></section></div>}
+    {deleteAllOpen && <DeleteAllDialog count={settledRecords.length} onConfirm={deleteAllSettledRecords} onClose={() => setDeleteAllOpen(false)} />}
     {settingsOpen && <SettingsSheet settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
 }
 
-createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>)
+export {
+  App,
+  buildDetailedReportText,
+  buildImmediateLineText,
+  buildWorkLineText,
+  createDefaultWorkReport,
+  formatDateTimeInput,
+  getDateKey,
+  getElapsedSeconds,
+  getRestartRule,
+  normalizeRecord,
+  parseDateTimeInput,
+  resolveEditedDateTimeInput,
+  shouldRestartForStore,
+}
+
+if (typeof document !== 'undefined') {
+  const rootElement = document.getElementById('root')
+  if (rootElement) createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>)
+}
