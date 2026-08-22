@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDateLabel, formatDateTimeInput, formatDuration, formatTime, getDateKey, isRestartDay, parseDateTimeInput } from '../time.js'
+import { formatDateLabel, formatDateTimeInput, formatDuration, formatTime, getDateKey, parseDateTimeInput, resolveEditedDateTimeInput } from '../time.js'
 
 describe('日付と時刻の表示', () => {
   it('保存キー用の日付を0埋めで作る', () => {
@@ -27,11 +27,22 @@ describe('日付と時刻の表示', () => {
 })
 
 describe('datetime-local の入出力', () => {
-  it('入力欄用の文字列と ISO を相互変換する', () => {
-    const iso = new Date(2026, 7, 20, 10, 30).toISOString()
+  it('入力欄用の文字列と ISO を秒まで相互変換する', () => {
+    const iso = new Date(2026, 7, 20, 10, 30, 12).toISOString()
     const inputValue = formatDateTimeInput(iso)
-    expect(inputValue).toBe('2026-08-20T10:30')
+    expect(inputValue).toBe('2026-08-20T10:30:12')
     expect(parseDateTimeInput(inputValue)).toBe(iso)
+  })
+
+  it('編集していない時刻欄は保存された値をそのまま返す', () => {
+    const original = '2026-08-21T01:11:12.789Z'
+    expect(resolveEditedDateTimeInput(formatDateTimeInput(original), original)).toBe(original)
+    expect(resolveEditedDateTimeInput('', null)).toBeNull()
+  })
+
+  it('編集した時刻欄は入力値をISOに変換する', () => {
+    const original = new Date(2026, 7, 20, 10, 30, 12).toISOString()
+    expect(resolveEditedDateTimeInput('2026-08-20T10:45:00', original)).toBe(new Date(2026, 7, 20, 10, 45).toISOString())
   })
 
   it('未入力や壊れた値では null / 空文字を返す', () => {
@@ -39,13 +50,5 @@ describe('datetime-local の入出力', () => {
     expect(formatDateTimeInput('壊れた値')).toBe('')
     expect(parseDateTimeInput('')).toBeNull()
     expect(parseDateTimeInput('壊れた値')).toBeNull()
-  })
-})
-
-describe('isRestartDay', () => {
-  it('水曜と土曜だけ再起動日にする', () => {
-    expect(isRestartDay(new Date(2026, 7, 19))).toBe(true)
-    expect(isRestartDay(new Date(2026, 7, 22))).toBe(true)
-    expect(isRestartDay(new Date(2026, 7, 20))).toBe(false)
   })
 })

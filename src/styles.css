@@ -11,8 +11,8 @@
   --line: #d9e0ea;
   --canvas: #f5f7fb;
   --surface: #ffffff;
-  --orange: #f35b21;
-  --orange-dark: #d94712;
+  --orange: #d13f0b;
+  --orange-dark: #a92f06;
   --mint: #daf4e2;
   --mint-text: #147347;
   --blue-pale: #e7effd;
@@ -28,6 +28,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas)
 button, input, textarea { font: inherit; }
 button { color: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+button:focus-visible { outline: 3px solid #76a8ef; outline-offset: 2px; }
 
 .app-shell { min-height: 100vh; color: var(--ink); }
 .app-header { height: 68px; padding: 0 max(20px, calc((100vw - 860px) / 2)); background: var(--surface); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
@@ -86,8 +87,9 @@ button:disabled { cursor: not-allowed; }
 .secondary-button { padding: 0 18px; background: #edf2fa; border: 1px solid #dce4f0; color: var(--navy); }
 .secondary-button:hover { background: #e2eaf6; }
 .note-button { min-height: 38px; color: #c8d6ef; background: transparent; border-color: rgba(255,255,255,.24); }
-.parking-area { background: var(--surface); border-radius: 15px; padding: 17px; box-shadow: var(--shadow); }
-.parking-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.parking-area { display: flex; flex-direction: column; background: var(--surface); border-radius: 15px; padding: 17px; box-shadow: var(--shadow); }
+.parking-area .area-heading { order: 1; }
+.parking-layout { order: 3; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .parking-column { display: flex; flex-direction: column; gap: 8px; }
 .parking-column.left { padding-top: 0; }
 .parking-column.left .spot-button:nth-child(3) { margin-top: 17px; }
@@ -95,14 +97,14 @@ button:disabled { cursor: not-allowed; }
 .spot-button strong { font-size: clamp(20px, 5.2vw, 27px); line-height: 1; font-variant-numeric: tabular-nums; }
 .spot-button small { color: var(--muted); font-size: 9px; font-weight: 800; }
 .spot-button:not(:disabled):hover { border-color: var(--orange); background: #fff7f3; }
-.spot-button.active:hover { border-color: #ff9f77; background: #e94d18; }
+.spot-button.active:hover { border-color: var(--orange-dark); background: var(--orange-dark); }
 .spot-button.waiting:hover { border-color: #6e9fe8; background: #dbe8fc; }
 .spot-button.active { border-color: var(--orange); background: var(--orange); color: white; }
 .spot-button.active small { color: white; }
 .spot-button.waiting { border-color: #a9c2ea; background: var(--blue-pale); color: var(--blue-text); }
 .spot-button.waiting small { color: var(--blue-text); }
 .spot-button:disabled { opacity: 1; }
-.unknown-start-button { width: 100%; min-height: 58px; margin-top: 12px; padding: 8px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed #9cb0ce; border-radius: 10px; background: #f7f9fd; color: var(--navy); }
+.unknown-start-button { order: 2; width: 100%; min-height: 58px; margin: 0 0 12px; padding: 8px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed #9cb0ce; border-radius: 10px; background: #f7f9fd; color: var(--navy); }
 .unknown-start-button:hover { border-color: var(--orange); background: #fff7f3; }
 .unknown-start-button span { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
 .unknown-start-button strong { font-size: 14px; }
@@ -277,7 +279,7 @@ button:disabled { cursor: not-allowed; }
   .app-header { height: 62px; padding: 0 16px; }
   .brand-mark { font-size: 19px; }
   .header-date { font-size: 12px; margin-left: auto; margin-right: 10px; }
-  .help-button { width: 34px; height: 34px; font-size: 17px; }
+  .help-button { width: 40px; height: 40px; font-size: 17px; }
   .tab-nav { display: none; }
   .main-content { padding: 0 14px calc(92px + env(safe-area-inset-bottom)); }
   .day-banner { min-height: 47px; }
@@ -352,7 +354,7 @@ button:disabled { cursor: not-allowed; }
 .active-record.is-over .timer-remaining { color: #ffc4c4; }
 
 /* --- 駐車位置ボタンの凡例 ------------------------------------------------ */
-.parking-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 9px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.parking-legend { order: 1; display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 9px; color: var(--muted); font-size: 11px; font-weight: 800; }
 .parking-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .legend-dot { width: 10px; height: 10px; border-radius: 3px; border: 1px solid #b8c6dd; background: white; }
 .legend-dot.legend-active { border-color: #167145; background: #d6f2df; }

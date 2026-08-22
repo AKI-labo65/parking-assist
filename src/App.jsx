@@ -20,9 +20,9 @@ import {
   formatDuration,
   formatTime,
   getDateKey,
-  isRestartDay,
-  parseDateTimeInput,
+  resolveEditedDateTimeInput,
 } from './lib/time.js'
+import { getRestartRule, shouldRestartForStore } from './lib/workRules.js'
 import {
   createRecord,
   findActiveSpotConflict,
@@ -92,6 +92,17 @@ function ModalShell({ labelledBy, className = 'bottom-sheet', onClose, children 
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     document.body.classList.add('modal-open')
+    // 背面の内容は読み上げ・タブ移動の対象から外す。
+    const backdrop = dialog?.closest('.modal-backdrop')
+    const hidden = (backdrop?.parentElement ? [...backdrop.parentElement.children] : []).filter((element) => element !== backdrop).map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute('aria-hidden'),
+    }))
+    hidden.forEach(({ element }) => {
+      element.inert = true
+      element.setAttribute('aria-hidden', 'true')
+    })
     const autoFocus = dialog?.querySelector('[data-autofocus]')
     ;(autoFocus || dialog)?.focus?.({ preventScroll: true })
 
@@ -121,6 +132,11 @@ function ModalShell({ labelledBy, className = 'bottom-sheet', onClose, children 
       if (index >= 0) modalStack.splice(index, 1)
       if (modalStack.length === 0) document.body.classList.remove('modal-open')
       document.removeEventListener('keydown', onKeyDown)
+      hidden.forEach(({ element, inert, ariaHidden }) => {
+        element.inert = inert
+        if (ariaHidden === null) element.removeAttribute('aria-hidden')
+        else element.setAttribute('aria-hidden', ariaHidden)
+      })
       document.body.style.overflow = previousOverflow
       previouslyFocused?.focus?.({ preventScroll: true })
     }
@@ -141,7 +157,7 @@ function ConfirmDialog({ request, onClose }) {
     <p className="spot-confirm-help">{request.description}</p>
     <div className="modal-footer confirm-footer">
       <button type="button" className="secondary-button" onClick={onClose}>キャンセル</button>
-      <button type="button" className="delete-all-confirm-button" onClick={() => { request.onConfirm(); onClose() }}><Icon name="trash" size={17} />{request.confirmLabel || '削除する'}</button>
+      <button type="button" className={request.danger === false ? 'primary-button' : 'delete-all-confirm-button'} onClick={() => { request.onConfirm(); onClose() }}>{request.danger === false ? null : <Icon name="trash" size={17} />}{request.confirmLabel || '削除する'}</button>
     </div>
   </ModalShell>
 }
@@ -150,7 +166,7 @@ function NavigationTab({ tab, activeView, onSelect, mobile = false }) {
   const iconName = { record: 'note', issued: 'check', history: 'clock' }[tab.id]
   return <button type="button" className={`${activeView === tab.id ? 'active ' : ''}${mobile ? 'mobile-tab' : ''}`} onClick={() => onSelect(tab.id)} aria-current={activeView === tab.id ? 'page' : undefined}>
     {mobile && <Icon name={iconName} size={18} />}
-    <span>{tab.label}</span>
+    <span>{mobile ? tab.mobileLabel || tab.label : tab.label}</span>
     {tab.count > 0 && <span className={mobile ? 'mobile-tab-count' : 'tab-count'}>{tab.count}</span>}
   </button>
 }
@@ -168,7 +184,7 @@ function WorkNumberField({ label, value, suffix, onChange }) {
   return <label className="work-field"><span>{label}</span><div><input type="number" min="0" inputMode="numeric" value={value} onChange={(event) => onChange(event.target.value)} placeholder="—" /><small>{suffix}</small></div></label>
 }
 
-function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
+function WorkStoreCard({ config, data, restartRequired, restartRule, onPatch, onNotify }) {
   const hasArrival = Boolean(data.arrivalAt)
   const hasRestartStarted = Boolean(data.restartStartedAt)
   const hasRestartCompleted = Boolean(data.restartCompletedAt)
@@ -202,8 +218,8 @@ function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
         {config.hasCommute && <div className="work-choice"><span>移動手段</span><div>{COMMUTE_OPTIONS.map((choice) => <button key={choice} type="button" className={data.commute === choice ? 'selected' : ''} aria-pressed={data.commute === choice} onClick={() => onPatch({ commute: choice })}>{choice}</button>)}</div></div>}
       </div>
       <section className={`work-restart ${hasRestartCompleted ? 'complete' : ''}`}>
-        <div className="work-subheading"><strong>精算機の再起動</strong><span>{restartDay ? '水曜・土曜' : '今日は対象外'}</span></div>
-        {!restartDay ? <p className="work-muted">今日は再起動の報告はありません。</p> : <>
+        <div className="work-subheading"><strong>精算機の再起動</strong><span>{restartRequired ? (restartRule.id === 'saturday' ? '初期点検8秒以上' : '本日の対象日') : restartRule.id === 'saturday' ? '初期点検8秒未満' : '今日は対象外'}</span></div>
+        {!restartRequired ? <p className="work-muted">{restartRule.id === 'saturday' ? '初期点検が8秒以上になった場合のみ再起動します。' : '今日は再起動の報告はありません。'}</p> : <>
           <button type="button" className="secondary-button work-wide-button" disabled={!hasArrival || hasRestartStarted} onClick={markRestartStart}>{hasRestartStarted ? '再起動開始を記録済み' : '再起動開始を記録'}</button>
           {hasRestartStarted && <><div className="work-restart-fields"><WorkNumberField label="再起動前" value={data.restartBeforeSeconds} suffix="秒" onChange={(value) => onPatch({ restartBeforeSeconds: value })} /><WorkNumberField label="再起動後" value={data.restartAfterSeconds} suffix="秒" onChange={(value) => onPatch({ restartAfterSeconds: value })} /><WorkNumberField label="QRリーダー" value={data.qrMinutes} suffix="分" onChange={(value) => onPatch({ qrMinutes: value })} /><WorkNumberField label="クレカ立ち上がり" value={data.creditMinutes} suffix="分" onChange={(value) => onPatch({ creditMinutes: value })} /><button type="button" className="primary-button work-wide-button" disabled={hasRestartCompleted} onClick={markRestartComplete}>{hasRestartCompleted ? <><Icon name="check" size={19} />復旧結果を記録済み</> : '復旧結果を記録'}</button></div><div className="work-message-options"><span>再起動後の一言（任意）</span><div>{RESTART_MESSAGES.map((message) => <button key={message} type="button" className={data.restartNote === message ? 'selected' : ''} aria-pressed={data.restartNote === message} onClick={() => onPatch({ restartNote: message })}>{message}</button>)}</div><input className="text-input" value={data.restartNote} onChange={(event) => onPatch({ restartNote: event.target.value })} placeholder="自由入力もできます" aria-label="再起動後の一言" /></div></>}
         </>}
@@ -213,23 +229,55 @@ function WorkStoreCard({ config, data, restartDay, onPatch, onNotify }) {
   </article>
 }
 
-function WorkScheduleCard({ schedule, onPatch, onNotify }) {
+function WorkScheduleCard({ schedule, onPatch, onNotify, onConfirm }) {
   const items = [
     { key: 'startedAt', label: '10:00 勤務開始', detail: '配置につきました' },
     { key: 'breakAt', label: '12:00 休憩開始', detail: '配置一時解除' },
     { key: 'resumedAt', label: '15:00 業務再開', detail: '配置につきました' },
     { key: 'endedAt', label: '18:00 勤務終了', detail: '配置解除・店舗挨拶完了' },
   ]
-  const mark = (item) => {
-    if (schedule[item.key]) return
+  const applyAction = (item, action) => {
+    if (action === 'remove') {
+      onPatch({ [item.key]: null })
+      onNotify(`${item.label}の記録を取り消しました`)
+      return
+    }
     onPatch({ [item.key]: new Date().toISOString() })
     onNotify(`${item.label}を記録しました`)
   }
-  return <article className="work-schedule-card"><div className="section-heading work-heading"><div><h2>勤務時間</h2><p>現場で押した時刻を保存し、報告文に反映します。</p></div></div><div className="work-schedule-grid">{items.map((item) => <button key={item.key} type="button" className={`work-schedule-button ${schedule[item.key] ? 'completed' : ''}`} disabled={Boolean(schedule[item.key])} onClick={() => mark(item)}><span>{schedule[item.key] ? <Icon name="check" size={19} /> : <span className="schedule-time">{item.label.slice(0, 5)}</span>}</span><strong>{schedule[item.key] ? `${item.label} 済` : item.label}</strong><small>{schedule[item.key] ? `記録 ${formatTime(schedule[item.key])}` : item.detail}</small></button>)}</div><div className="work-counts"><WorkNumberField label="店舗駐車券預り" value={schedule.parkingTickets} suffix="枚" onChange={(value) => onPatch({ parkingTickets: value })} /><WorkNumberField label="お客様から返却" value={schedule.returnedTickets} suffix="枚" onChange={(value) => onPatch({ returnedTickets: value })} /><WorkNumberField label="お客様へ配布" value={schedule.distributedTickets} suffix="枚" onChange={(value) => onPatch({ distributedTickets: value })} /></div><div className="work-message-options work-general-message"><span>途中の報告（任意）</span><div>{COMMON_WORK_MESSAGES.map((message) => <button key={message} type="button" className={schedule.extraMessage === message ? 'selected' : ''} aria-pressed={schedule.extraMessage === message} onClick={() => onPatch({ extraMessage: message })}>{message}</button>)}</div><input className="text-input" value={schedule.extraMessage} onChange={(event) => onPatch({ extraMessage: event.target.value })} placeholder="自由入力もできます" aria-label="途中の報告" /></div><label className="field-label work-memo-label" htmlFor="work-finish-memo">終了時の補足（任意）</label><textarea id="work-finish-memo" className="text-input memo-input" value={schedule.finishMemo} onChange={(event) => onPatch({ finishMemo: event.target.value })} rows="2" placeholder="例：サービス券受取が少なかったため配布数が増加" /></article>
+  // 押し間違えても取り消せるようにし、順番が飛んだときは確認してから記録する。
+  const mark = (item) => {
+    if (schedule[item.key]) {
+      onConfirm({
+        eyebrow: '勤務時間の記録',
+        title: `${item.label}を取り消しますか？`,
+        description: '記録した時刻が削除され、勤務報告にも含まれなくなります。',
+        confirmLabel: '記録を取り消す',
+        onConfirm: () => applyAction(item, 'remove'),
+      })
+      return
+    }
+    const missingPrevious = items.slice(0, items.findIndex(({ key }) => key === item.key)).filter(({ key }) => !schedule[key])
+    if (missingPrevious.length > 0) {
+      onConfirm({
+        eyebrow: '勤務時間の記録',
+        title: `${item.label}を先に記録しますか？`,
+        description: `${missingPrevious.map(({ label }) => label).join('、')}が未記録です。順番を確認してから進めてください。`,
+        confirmLabel: 'このまま記録',
+        danger: false,
+        onConfirm: () => applyAction(item, 'record'),
+      })
+      return
+    }
+    applyAction(item, 'record')
+  }
+  return <article className="work-schedule-card"><div className="section-heading work-heading"><div><h2>勤務時間</h2><p>現場で押した時刻を保存し、報告文に反映します。</p></div></div><div className="work-schedule-grid">{items.map((item) => <button key={item.key} type="button" className={`work-schedule-button ${schedule[item.key] ? 'completed' : ''}`} onClick={() => mark(item)} aria-label={schedule[item.key] ? `${item.label}の記録を取り消す` : item.label}><span>{schedule[item.key] ? <Icon name="check" size={19} /> : <span className="schedule-time">{item.label.slice(0, 5)}</span>}</span><strong>{schedule[item.key] ? `${item.label} 済` : item.label}</strong><small>{schedule[item.key] ? `記録 ${formatTime(schedule[item.key])}・タップで取り消し` : item.detail}</small></button>)}</div><div className="work-counts"><WorkNumberField label="店舗駐車券預り" value={schedule.parkingTickets} suffix="枚" onChange={(value) => onPatch({ parkingTickets: value })} /><WorkNumberField label="お客様から返却" value={schedule.returnedTickets} suffix="枚" onChange={(value) => onPatch({ returnedTickets: value })} /><WorkNumberField label="お客様へ配布" value={schedule.distributedTickets} suffix="枚" onChange={(value) => onPatch({ distributedTickets: value })} /></div><div className="work-message-options work-general-message"><span>途中の報告（任意）</span><div>{COMMON_WORK_MESSAGES.map((message) => <button key={message} type="button" className={schedule.extraMessage === message ? 'selected' : ''} aria-pressed={schedule.extraMessage === message} onClick={() => onPatch({ extraMessage: message })}>{message}</button>)}</div><input className="text-input" value={schedule.extraMessage} onChange={(event) => onPatch({ extraMessage: event.target.value })} placeholder="自由入力もできます" aria-label="途中の報告" /></div><label className="field-label work-memo-label" htmlFor="work-finish-memo">終了時の補足（任意）</label><textarea id="work-finish-memo" className="text-input memo-input" value={schedule.finishMemo} onChange={(event) => onPatch({ finishMemo: event.target.value })} rows="2" placeholder="例：サービス券受取が少なかったため配布数が増加" /></article>
 }
 
-function WorkReportView({ report, storeConfigs, restartDay, lineText, onStorePatch, onSchedulePatch, onNotify, onGenerate, onCopy }) {
-  return <section className="view-section" aria-labelledby="work-heading"><div className="section-heading"><div><h1 id="work-heading">勤務報告</h1><p>店舗の到着・再起動・休憩・終了を順番に記録します。</p></div><span className={`section-count ${restartDay ? 'restart-day-label' : ''}`}>{restartDay ? '本日は再起動日' : '再起動なし'}</span></div><div className={`work-rule-banner ${restartDay ? 'restart' : ''}`}><span className="tip-icon">!</span><span><strong>{restartDay ? '今日は水曜・土曜の再起動対象日です' : '今日は再起動なしの勤務日です'}</strong><br />{storeConfigs.map((config) => config.label).join(' → ')} → 10:00開始 → 12:00休憩 → 15:00再開 → 18:00終了</span></div><div className="work-store-list">{storeConfigs.map((config) => <WorkStoreCard key={config.id} config={config} data={report.stores[config.id]} restartDay={restartDay} onPatch={(patch) => onStorePatch(config.id, patch)} onNotify={onNotify} />)}</div><WorkScheduleCard schedule={report.schedule} onPatch={onSchedulePatch} onNotify={onNotify} /><div className="line-tools work-line-tools"><div><strong>勤務報告を作成</strong><span>現在記録されている内容だけで文章をまとめます。</span></div><button type="button" className="line-button" onClick={onGenerate}><span className="line-mark">LINE</span>報告文を生成</button></div>{lineText && <div className="line-output work-line-output"><div className="line-output-heading"><strong>生成された勤務報告</strong><button type="button" className="copy-button" onClick={onCopy}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="勤務報告用テキスト" /></div>}</section>
+function WorkReportView({ report, storeConfigs, restartRule, lineText, onStorePatch, onSchedulePatch, onNotify, onConfirm, onGenerate, onCopy }) {
+  const restartRequiredByStore = storeConfigs.map((config) => shouldRestartForStore(restartRule, report.stores[config.id]))
+  const hasRestartTarget = restartRequiredByStore.some(Boolean)
+  return <section className="view-section" aria-labelledby="work-heading"><div className="section-heading"><div><h1 id="work-heading">勤務報告</h1><p>店舗の到着・再起動・休憩・終了を順番に記録します。</p></div><span className={`section-count ${hasRestartTarget ? 'restart-day-label' : ''}`}>{restartRule.required ? '本日は再起動日' : restartRule.id === 'saturday' ? (hasRestartTarget ? '再起動対象あり' : '初期点検で判定') : '再起動なし'}</span></div><div className={`work-rule-banner ${hasRestartTarget ? 'restart' : ''}`}><span className="tip-icon">!</span><span><strong>{restartRule.label}</strong><br />{storeConfigs.map((config) => config.label).join(' → ')} → 10:00開始 → 12:00休憩 → 15:00再開 → 18:00終了</span></div><div className="work-store-list">{storeConfigs.map((config, index) => <WorkStoreCard key={config.id} config={config} data={report.stores[config.id]} restartRequired={restartRequiredByStore[index]} restartRule={restartRule} onPatch={(patch) => onStorePatch(config.id, patch)} onNotify={onNotify} />)}</div><WorkScheduleCard schedule={report.schedule} onPatch={onSchedulePatch} onNotify={onNotify} onConfirm={onConfirm} /><div className="line-tools work-line-tools"><div><strong>勤務報告を作成</strong><span>現在記録されている内容だけで文章をまとめます。</span></div><button type="button" className="line-button" onClick={onGenerate}><span className="line-mark">LINE</span>報告文を生成</button></div>{lineText && <div className="line-output work-line-output"><div className="line-output-heading"><strong>生成された勤務報告</strong><button type="button" className="copy-button" onClick={onCopy}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="勤務報告用テキスト" /></div>}</section>
 }
 
 function SettingsSheet({ settings, onSave, onClose }) {
@@ -360,9 +408,9 @@ function EditModal({ record, onSave, onDelete, onClose }) {
   const submit = (event) => {
     event.preventDefault()
     const spot = normalizeSpot(form.spot)
-    const startedAt = parseDateTimeInput(form.startedAt) || record.startedAt
-    const issuedAt = parseDateTimeInput(form.issuedAt)
-    const settledAt = parseDateTimeInput(form.settledAt)
+    const startedAt = resolveEditedDateTimeInput(form.startedAt, record.startedAt) || record.startedAt
+    const issuedAt = resolveEditedDateTimeInput(form.issuedAt, record.issuedAt)
+    const settledAt = resolveEditedDateTimeInput(form.settledAt, record.settledAt)
     // 時刻の前後が入れ替わった記録は保存させない。
     if (issuedAt && new Date(issuedAt) < new Date(startedAt)) return setError('証明書発行の時刻は、駐車開始より後にしてください。')
     if (settledAt && new Date(settledAt) < new Date(issuedAt || startedAt)) return setError('精算の時刻は、証明書発行（または駐車開始）より後にしてください。')
@@ -372,7 +420,7 @@ function EditModal({ record, onSave, onDelete, onClose }) {
   return <ModalShell className="edit-modal" labelledBy="edit-modal-title" onClose={onClose}>
     <div className="modal-heading"><div><span className="eyebrow">記録を修正</span><h2 id="edit-modal-title">{getRecordSpotLabel(record)}の詳細</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
     <form onSubmit={submit}>
-      <div className="form-grid"><label className="field-label">駐車位置番号<input className="text-input" type="text" inputMode="numeric" placeholder="未入力でも可" value={form.spot || ''} onChange={(event) => update('spot', event.target.value)} /></label><label className="field-label">駐車開始<input className="text-input" type="datetime-local" value={form.startedAt} onChange={(event) => update('startedAt', event.target.value)} /></label><label className="field-label">証明書発行<input className="text-input" type="datetime-local" value={form.issuedAt} onChange={(event) => update('issuedAt', event.target.value)} /></label><label className="field-label">精算時刻<input className="text-input" type="datetime-local" value={form.settledAt} onChange={(event) => update('settledAt', event.target.value)} /></label></div>
+      <div className="form-grid"><label className="field-label">駐車位置番号<input className="text-input" type="text" inputMode="numeric" placeholder="未入力でも可" value={form.spot || ''} onChange={(event) => update('spot', event.target.value)} /></label><label className="field-label">駐車開始<input className="text-input" type="datetime-local" step="1" value={form.startedAt} onChange={(event) => update('startedAt', event.target.value)} /></label><label className="field-label">証明書発行<input className="text-input" type="datetime-local" step="1" value={form.issuedAt} onChange={(event) => update('issuedAt', event.target.value)} /></label><label className="field-label">精算時刻<input className="text-input" type="datetime-local" step="1" value={form.settledAt} onChange={(event) => update('settledAt', event.target.value)} /></label></div>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="field-label">例外メモ</div><div className="note-options compact">{COMMON_NOTES.map((note) => <button key={note} type="button" className={`note-option ${form.notePresets.includes(note) ? 'selected' : ''}`} aria-pressed={form.notePresets.includes(note)} onClick={() => togglePreset(note)}>{form.notePresets.includes(note) && <Icon name="check" size={16} />}{note}</button>)}</div>
       <label className="field-label" htmlFor="edit-memo">自由メモ</label><textarea id="edit-memo" className="text-input memo-input" value={form.memo} onChange={(event) => update('memo', event.target.value)} rows="3" placeholder="メモを入力してください" />
@@ -416,7 +464,7 @@ function Toast({ toast, onAction }) {
 export default function App() {
   const [dateKey, setDateKey] = useState(() => getDateKey())
   const dateKeyRef = useRef(dateKey)
-  const restartDay = isRestartDay()
+  const restartRule = getRestartRule()
   const [settings, setSettings] = useState(() => loadSettings())
   const [records, setRecords] = useState(() => loadRecords(dateKey))
   const [workReport, setWorkReport] = useState(() => loadWorkReport(dateKey))
@@ -481,6 +529,15 @@ export default function App() {
   }, [settings])
 
   useEffect(() => {
+    setLineText('')
+    setLineReportTargetIds([])
+  }, [records])
+
+  useEffect(() => {
+    setWorkLineText('')
+  }, [workReport])
+
+  useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(null), toast.undo ? 7000 : 2600)
     return () => window.clearTimeout(timer)
@@ -489,6 +546,7 @@ export default function App() {
   useEffect(() => {
     // Native Android builds use the bundled files directly. Keeping a Service
     // Worker there can make an app update continue serving the previous bundle.
+    if (!import.meta.env.PROD) return
     if (Capacitor.isNativePlatform()) return
     if ('serviceWorker' in navigator) navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
   }, [])
@@ -531,7 +589,8 @@ export default function App() {
   }
 
   const saveNotes = (id, patch) => {
-    updateRecord(id, patch)
+    // 内容が変われば報告文も変わるため、報告済みの印は外して作り直してもらう。
+    updateRecord(id, { ...patch, lineReportedAt: null })
     setNoteRecord(null)
     notify('メモを保存しました')
   }
@@ -548,7 +607,7 @@ export default function App() {
       notify(`${formatSpotLabel(nextSpot)}は現在対応中です。番号を確認してください`)
       return
     }
-    updateRecord(id, patch)
+    updateRecord(id, { ...patch, lineReportedAt: null })
     setEditRecord(null)
     notify(`${formatSpotLabel(nextSpot, '番号未入力')}の記録を更新しました`)
   }
@@ -663,7 +722,7 @@ export default function App() {
   const tabItems = [
     { id: 'record', label: '記録', count: parkingRecords.length },
     { id: 'work', label: '勤務報告' },
-    { id: 'issued', label: '発行済み・精算待ち', count: issuedRecords.length },
+    { id: 'issued', label: '発行済み・精算待ち', mobileLabel: '精算待ち', count: issuedRecords.length },
     { id: 'history', label: '履歴', count: settledRecords.length },
   ]
   const primaryTabItems = tabItems.filter((tab) => tab.id !== 'work')
@@ -679,11 +738,11 @@ export default function App() {
       {activeView === 'record' && <section className="view-section" aria-labelledby="record-heading">
         <div className="section-heading"><div><h1 id="record-heading">駐車番号を選択</h1><p>番号が分かるときはタップ。分からないときは発行時に入力できます。</p></div><span className="section-count">対応中 {parkingRecords.length}件</span></div>
         {parkingRecords.length > 0 && <div className="active-panel"><div className="active-panel-heading"><span className="live-dot" />タイマー動作中（発行時に番号入力）</div>{parkingRecords.map((record) => <ActiveRecordCard key={record.id} record={record} now={now} onIssue={setIssueRecord} onNote={setNoteRecord} onEdit={setEditRecord} onDelete={requestDeleteRecord} />)}</div>}
-        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>左 1〜8　右 21〜9</span></div><div className="parking-legend"><span><i className="legend-dot legend-free" />未使用</span><span><i className="legend-dot legend-active" />対応中</span><span><i className="legend-dot legend-waiting" />精算待ち</span></div><ParkingGrid records={records} onStart={startRecord} onOpenRecord={setEditRecord} /><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button></div>
+        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>左 1〜8　右 21〜9</span></div><div className="parking-legend"><span><i className="legend-dot legend-free" />未使用</span><span><i className="legend-dot legend-active" />対応中</span><span><i className="legend-dot legend-waiting" />精算待ち</span></div><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button><ParkingGrid records={records} onStart={startRecord} onOpenRecord={setEditRecord} /></div>
         {parkingRecords.length === 0 && <EmptyState title="タイマー動作中の車両はありません" detail="車が駐車したら、番号ボタンまたは番号未入力で開始を押してください。" />}
       </section>}
 
-      {activeView === 'work' && <WorkReportView report={workReport} storeConfigs={storeConfigs} restartDay={restartDay} lineText={workLineText} onStorePatch={updateWorkStore} onSchedulePatch={updateWorkSchedule} onNotify={notify} onGenerate={generateWorkLineText} onCopy={copyWorkLineText} />}
+      {activeView === 'work' && <WorkReportView report={workReport} storeConfigs={storeConfigs} restartRule={restartRule} lineText={workLineText} onStorePatch={updateWorkStore} onSchedulePatch={updateWorkSchedule} onNotify={notify} onConfirm={setConfirmRequest} onGenerate={generateWorkLineText} onCopy={copyWorkLineText} />}
 
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={requestDeleteRecord} />)}</div>}</section>}
 
