@@ -32,7 +32,6 @@ const PARKING_SPOT_COLUMNS = [
   ['1', '2', '3', '4', '5', '6', '7', '8'],
   ['21', '20', '19', '18', '17', '16', '15', '14', '13', '12', '10', '9'],
 ]
-const PARKING_SPOTS = PARKING_SPOT_COLUMNS.flat()
 const STATUS = {
   parking: { label: '駐車中', tone: 'parking' },
   issued: { label: '証明書発行済み', tone: 'issued' },
@@ -723,7 +722,6 @@ function SpotConfirmSheet({ record, onConfirm, onClose }) {
   const initialSpot = getRecordSpot(record)
   const [spot, setSpot] = useState(initialSpot || '')
   if (!record) return null
-  const quickSpots = PARKING_SPOTS
   const hasKnownSpot = Boolean(initialSpot)
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={dialogRef} className="bottom-sheet spot-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="spot-confirm-title" tabIndex="-1">
@@ -733,7 +731,7 @@ function SpotConfirmSheet({ record, onConfirm, onClose }) {
       {hasKnownSpot && <p className="spot-confirm-started">開始時の番号：<strong>{formatSpotLabel(initialSpot)}</strong></p>}
       <label className="field-label" htmlFor="certificate-spot">駐車位置番号（入力必須・数字／英字）</label>
       <input id="certificate-spot" data-dialog-initial-focus className="text-input spot-confirm-input" type="text" inputMode="numeric" value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17（直接入力する場合）" />
-      <div className="spot-quick-grid" aria-label="駐車位置番号の候補">{quickSpots.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div>
+      <div className="spot-quick-layout" aria-label="駐車位置番号の候補">{PARKING_SPOT_COLUMNS.map((column, columnIndex) => <div key={columnIndex} className="spot-quick-column"><span className="spot-quick-column-label">{columnIndex === 0 ? '左側 1〜8' : '右側 21〜9'}</span><div className="spot-quick-column-buttons">{column.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div></div>)}</div>
       <div className="spot-confirm-actions"><button type="button" className="primary-button" disabled={!normalizeSpot(spot)} onClick={() => onConfirm(record.id, spot)}>{spot ? `${formatSpotLabel(spot)}で発行確定` : '番号を入力してください'}</button><button type="button" className="exception-button" onClick={() => onConfirm(record.id, '')}>番号不明のまま発行（例外）</button></div>
     </section>
   </div>
