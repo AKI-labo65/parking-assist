@@ -1041,7 +1041,7 @@ function App() {
     const sections = []
     if (normalRecords.length > 0) {
       const hasException = normalRecords.some((record) => Boolean(getNotes(record)))
-      const reportHeader = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、メモあり。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
+      const reportHeader = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、一部メモあり。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
       sections.push(`${reportHeader}${recordsText ? `\n\n${recordsText}` : ''}`)
     }
     detailedRecords.forEach((record) => sections.push(buildDetailedReportText(record, storeLabel)))

@@ -120,9 +120,21 @@ describe('generated LINE report consistency', () => {
     await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
     const text = screen.getByLabelText('LINE用テキスト').value
 
-    expect(text).toContain('1分30秒以内の記録ですが、メモあり。')
+    expect(text).toContain('1分30秒以内の記録ですが、一部メモあり。')
     expect(text).toContain('精算\n＊料金発生なし\nサービス券2枚回収')
     expect(text).not.toContain('精算＊')
+  })
+
+  it('does not add the memo summary when there are no memo records', async () => {
+    seedApp()
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getAllByRole('button', { name: /履歴/ })[0])
+    await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
+    const text = screen.getByLabelText('LINE用テキスト').value
+
+    expect(text).not.toContain('一部メモあり。')
   })
 
   it('also puts immediate-report memo items on separate lines', () => {
