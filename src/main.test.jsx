@@ -47,10 +47,10 @@ function makeSettledRecord(overrides = {}) {
   }
 }
 
-function seedApp(record = makeSettledRecord()) {
+function seedApp(record = makeSettledRecord(), { ended = true } = {}) {
   const dateKey = getDateKey()
   const workReport = createDefaultWorkReport()
-  workReport.schedule.endedAt = new Date().toISOString()
+  if (ended) workReport.schedule.endedAt = new Date().toISOString()
   localStorage.setItem(`parking-assist-records:${dateKey}`, JSON.stringify([record]))
   localStorage.setItem(`parking-assist-work:${dateKey}`, JSON.stringify(workReport))
 }
@@ -135,6 +135,19 @@ describe('generated LINE report consistency', () => {
     const text = screen.getByLabelText('LINE用テキスト').value
 
     expect(text).not.toContain('一部メモあり。')
+  })
+
+  it('allows the batch report to be generated before shift end', async () => {
+    seedApp(makeSettledRecord(), { ended: false })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getAllByRole('button', { name: /履歴/ })[0])
+    const generateButton = screen.getByRole('button', { name: 'LINE まとめて報告文を生成' })
+
+    expect(generateButton).not.toBeDisabled()
+    await user.click(generateButton)
+    expect(screen.getByLabelText('LINE用テキスト').value).toContain('駐車位置番号:1番')
   })
 
   it('also puts immediate-report memo items on separate lines', () => {
