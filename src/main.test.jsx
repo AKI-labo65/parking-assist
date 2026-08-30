@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   App,
+  buildImmediateLineText,
   buildWorkLineText,
   createDefaultWorkReport,
   formatDateTimeInput,
@@ -110,6 +111,32 @@ describe('restart schedule', () => {
 })
 
 describe('generated LINE report consistency', () => {
+  it('labels memo records and puts each memo on its own line after settlement', async () => {
+    seedApp(makeSettledRecord({ notePresets: ['料金発生なし', 'サービス券2枚回収'] }))
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getAllByRole('button', { name: /履歴/ })[0])
+    await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
+    const text = screen.getByLabelText('LINE用テキスト').value
+
+    expect(text).toContain('1分30秒以内の記録ですが、メモあり。')
+    expect(text).toContain('精算\n＊料金発生なし\nサービス券2枚回収')
+    expect(text).not.toContain('精算＊')
+  })
+
+  it('also puts immediate-report memo items on separate lines', () => {
+    const record = makeSettledRecord({
+      startedAt: new Date(Date.now() - 200_000).toISOString(),
+      issuedAt: new Date(Date.now() - 100_000).toISOString(),
+      notePresets: ['サービス券投入トラブル', '操作ミス'],
+    })
+    const text = buildImmediateLineText(record, '第二店舗')
+
+    expect(text).toContain('＊サービス券投入トラブル\n操作ミス')
+    expect(text).not.toContain('精算＊')
+  })
+
   it('clears stale output after editing and regenerates with the new spot', async () => {
     seedApp()
     const user = userEvent.setup()

@@ -97,6 +97,15 @@ function getNotes(record) {
   return [...(record.notePresets || []), record.memo?.trim()].filter(Boolean).join('、')
 }
 
+function getReportNoteLines(record, includeReportMemo = false) {
+  const notes = [
+    ...(record.notePresets || []),
+    record.memo?.trim(),
+    includeReportMemo ? record.reportMemo?.trim() : '',
+  ].filter(Boolean)
+  return notes.map((note, index) => index === 0 ? `＊${note}` : note)
+}
+
 function makeId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -209,7 +218,6 @@ function buildImmediateLineText(record, storeLabel) {
   const issueTime = formatTime(record.issuedAt || record.startedAt)
   const settleLine = record.settledAt ? `${formatTime(record.settledAt)}…精算` : '精算時間不明'
   const delayMinutes = getSettlementDelayMinutes(record)
-  const notes = [getNotes(record), record.reportMemo?.trim()].filter(Boolean).join('、')
   return [
     `【${storeLabel}】`,
     'お疲れ様です。',
@@ -221,7 +229,7 @@ function buildImmediateLineText(record, storeLabel) {
     `${issueTime}…${record.issuedAt ? '証明書発行' : '駐車証明発行できず'}`,
     settleLine,
     delayMinutes !== null && delayMinutes > 0 ? `${delayMinutes}分` : '',
-    notes ? `＊${notes}` : '',
+    ...getReportNoteLines(record, true),
   ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n')
 }
 
@@ -1028,13 +1036,12 @@ function App() {
       const elapsedText = record.issuedAt ? `駐車→証明書発行${getElapsedSeconds(record, now)}秒` : '駐車→証明書発行できず'
       const issuedText = record.issuedAt ? `${formatTime(record.issuedAt).replace(':', '：')}…証明書発行` : `${formatTime(record.startedAt).replace(':', '：')}…証明書発行できず`
       const settledText = record.settledAt ? `${formatTime(record.settledAt).replace(':', '：')}…精算` : '精算時間不明'
-      const noteText = getNotes(record) ? `＊${getNotes(record)}` : ''
-      return [`・駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`, elapsedText, issuedText, `${settledText}${noteText}`].join('\n')
+      return [`・駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`, elapsedText, issuedText, settledText, ...getReportNoteLines(record)].join('\n')
     }).join('\n\n')
     const sections = []
     if (normalRecords.length > 0) {
       const hasException = normalRecords.some((record) => Boolean(getNotes(record)))
-      const reportHeader = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、例外メモがあります。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
+      const reportHeader = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、メモあり。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
       sections.push(`${reportHeader}${recordsText ? `\n\n${recordsText}` : ''}`)
     }
     detailedRecords.forEach((record) => sections.push(buildDetailedReportText(record, storeLabel)))
