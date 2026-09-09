@@ -1,7 +1,7 @@
 :root {
   color: #1a1b20;
   background: #f9f9ff;
-  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Hiragino Kaku Gothic Pro", -apple-system, BlinkMacSystemFont, "Yu Gothic", "YuGothic", Meiryo, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --navy: #415f91;
