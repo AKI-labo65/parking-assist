@@ -24,10 +24,14 @@ const COMMUTE_OPTIONS = ['車', '電車']
 const RESTART_MESSAGES = ['只今から次の店舗の方に向かいます。', '現場離れます。']
 const COMMON_WORK_MESSAGES = ['合流済み、現地にてオリエン完了しました。']
 const WORK_STORES = [
-  { id: 'storeA', defaultLabel: '店舗A', arrivalText: '現着致しました。', hasCommute: true },
+  { id: 'storeA', defaultLabel: '杉栄店', arrivalText: '現着致しました。', hasCommute: true },
   { id: 'storeB', defaultLabel: '名東本通店', arrivalText: 'ただいま、名東本通店に到着しました。', hasCommute: false },
 ]
-const DEFAULT_SETTINGS = { storeLabels: { storeA: '店舗A', storeB: '名東本通店' } }
+const OPERATION_STORES = [
+  { id: 'storeB', defaultLabel: '名東本通店', description: 'いつもの勤務先' },
+  { id: 'storeA', defaultLabel: '杉栄店', description: 'こちらで勤務する日' },
+]
+const DEFAULT_SETTINGS = { storeLabels: { storeA: '杉栄店', storeB: '名東本通店' } }
 const PARKING_SPOT_COLUMNS = [
   ['1', '2', '3', '4', '5', '6', '7', '8'],
   ['21', '20', '19', '18', '17', '16', '15', '14', '13', '12', '10', '9'],
@@ -267,11 +271,12 @@ function loadSettings() {
     const value = localStorage.getItem(SETTINGS_STORAGE_KEY)
     const parsed = value ? JSON.parse(value) : {}
     const storedLabels = parsed.storeLabels || {}
+    const storeALabel = storedLabels.storeA === '店舗A' ? DEFAULT_SETTINGS.storeLabels.storeA : storedLabels.storeA
     const storeBLabel = storedLabels.storeB === '店舗B' ? DEFAULT_SETTINGS.storeLabels.storeB : storedLabels.storeB
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...storedLabels, ...(storeBLabel ? { storeB: storeBLabel } : {}) },
+      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...storedLabels, ...(storeALabel ? { storeA: storeALabel } : {}), ...(storeBLabel ? { storeB: storeBLabel } : {}) },
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -294,6 +299,7 @@ function createDefaultWorkReport() {
     serviceTickets: '20',
   })
   return {
+    activeStoreId: null,
     stores: Object.fromEntries(WORK_STORES.map(({ id }) => [id, createStore()])),
     schedule: {
       startedAt: null,
@@ -318,6 +324,7 @@ function loadWorkReport(dateKey) {
     const report = {
       ...defaults,
       ...parsed,
+      activeStoreId: OPERATION_STORES.some(({ id }) => id === parsed.activeStoreId) ? parsed.activeStoreId : null,
       stores: Object.fromEntries(WORK_STORES.map(({ id }, index) => [id, { ...defaults.stores[id], ...(parsed.stores?.[id] || parsedStores[index] || {}) }])),
       schedule: { ...defaults.schedule, ...(parsed.schedule || {}) },
     }
@@ -664,6 +671,34 @@ function WorkReportView({ report, storeConfigs, restartRule, lineText, onStorePa
   return <section className="view-section" aria-labelledby="work-heading"><div className="section-heading"><div><h1 id="work-heading">勤務報告</h1><p>店舗の到着・再起動・休憩・終了を順番に記録します。</p></div><span className={`section-count ${hasRestartTarget ? 'restart-day-label' : ''}`}>{restartRule.required ? '本日は再起動日' : restartRule.id === 'saturday' ? (hasRestartTarget ? '再起動対象あり' : '初期点検で判定') : '再起動なし'}</span></div><div className={`work-rule-banner ${hasRestartTarget ? 'restart' : ''}`}><span className="tip-icon">!</span><span><strong>{restartRule.label}</strong><br />{storeConfigs.map((config) => config.label).join(' → ')} → 10:00開始 → 12:00休憩 → 15:00再開 → 18:00終了</span></div><div className="work-store-list">{storeConfigs.map((config, index) => <WorkStoreCard key={config.id} config={config} data={report.stores[config.id]} restartRequired={restartRequiredByStore[index]} restartRule={restartRule} onPatch={(patch) => onStorePatch(config.id, patch)} onNotify={onNotify} />)}</div><WorkScheduleCard schedule={report.schedule} onPatch={onSchedulePatch} onNotify={onNotify} /><div className="line-tools work-line-tools"><div><strong>勤務報告を作成</strong><span>現在記録されている内容だけで文章をまとめます。</span></div><button type="button" className="line-button" onClick={onGenerate}><span className="line-mark">LINE</span>報告文を生成</button></div>{lineText && <div className="line-output work-line-output"><div className="line-output-heading"><strong>生成された勤務報告</strong><button type="button" className="copy-button" onClick={onCopy}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="勤務報告用テキスト" /></div>}</section>
 }
 
+function StoreChoiceButton({ option, onSelect, current = false, compact = false }) {
+  return <button type="button" className={`store-choice-button ${current ? 'selected' : ''} ${compact ? 'compact' : ''}`} onClick={() => onSelect(option.id)} aria-label={`${option.label}${current ? '・選択中' : 'で本日の稼働を開始'}`}>
+    <span className="store-choice-mark"><span className="brand-dot" /></span>
+    <span className="store-choice-copy"><strong>{option.label}</strong><small>{current ? '本日の選択店舗' : option.description}</small></span>
+    <span className="store-choice-action">{current ? '選択中' : 'この店舗で開始'}<Icon name="arrow" size={19} /></span>
+  </button>
+}
+
+function StoreStartView({ dateLabel, options, onSelect }) {
+  return <section className="store-start-view" aria-labelledby="store-start-heading">
+    <div className="store-start-intro"><div className="store-start-symbol"><span className="brand-dot" /></div><p className="store-start-date">本日 {dateLabel}</p><h1 id="store-start-heading">今日の店舗を選択</h1><p>店舗を選ぶと、その日の記録を開始します。駐車証明の報告文にも選択した店舗名が反映されます。</p></div>
+    <div className="store-choice-list">{options.map((option) => <StoreChoiceButton key={option.id} option={option} onSelect={onSelect} />)}</div>
+    <div className="store-start-note"><Icon name="note" size={18} /><span>選択内容と記録は、この端末の日付ごとに保存されます。勤務先が変わる日は、開始前に選び直してください。</span></div>
+  </section>
+}
+
+function StoreSwitchSheet({ options, currentStoreId, onSelect, onClose }) {
+  const dialogRef = useDialogFocus(onClose)
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section ref={dialogRef} className="bottom-sheet store-switch-sheet" role="dialog" aria-modal="true" aria-labelledby="store-switch-title" tabIndex="-1">
+      <div className="sheet-handle" />
+      <div className="sheet-heading"><div><span className="eyebrow">本日の稼働店舗</span><h2 id="store-switch-title">店舗を変更</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
+      <p className="spot-confirm-help">店舗を変更すると、この日の駐車記録・生成文の店舗名にも反映されます。</p>
+      <div className="store-choice-list compact">{options.map((option) => <StoreChoiceButton key={option.id} option={option} current={option.id === currentStoreId} compact onSelect={onSelect} />)}</div>
+    </section>
+  </div>
+}
+
 function SettingsSheet({ settings, onSave, onClose }) {
   const dialogRef = useDialogFocus(onClose)
   const [form, setForm] = useState({
@@ -673,7 +708,7 @@ function SettingsSheet({ settings, onSave, onClose }) {
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }))
   const submit = (event) => {
     event.preventDefault()
-    onSave({ storeLabels: { storeA: form.storeA.trim() || '店舗A', storeB: form.storeB.trim() || '名東本通店' } })
+    onSave({ storeLabels: { storeA: form.storeA.trim() || '杉栄店', storeB: form.storeB.trim() || '名東本通店' } })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={dialogRef} className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-sheet-title" tabIndex="-1">
@@ -681,7 +716,7 @@ function SettingsSheet({ settings, onSave, onClose }) {
       <div className="sheet-heading"><div><span className="eyebrow">端末内に保存</span><h2 id="settings-sheet-title">店舗名設定</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <p className="spot-confirm-help">店舗名は公開ページやコードには保存されず、この端末のブラウザ内だけに保存されます。</p>
       <form onSubmit={submit}>
-        <div className="form-grid"><label className="field-label">1店舗目<input data-dialog-initial-focus className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：店舗A" /></label><label className="field-label">2店舗目<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：名東本通店" /></label></div>
+        <div className="form-grid"><label className="field-label">杉栄店の表示名<input data-dialog-initial-focus className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：杉栄店" /></label><label className="field-label">名東本通店の表示名<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：名東本通店" /></label></div>
         <div className="sheet-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button">店舗名を保存</button></div>
       </form>
     </section>
@@ -853,6 +888,7 @@ function App() {
   const [lineReportTargetIds, setLineReportTargetIds] = useState([])
   const [workLineText, setWorkLineText] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [storeSelectorOpen, setStoreSelectorOpen] = useState(false)
   const [deleteAllOpen, setDeleteAllOpen] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -860,6 +896,8 @@ function App() {
     const label = settings.storeLabels[config.id] || config.defaultLabel
     return { ...config, label, arrivalText: config.id === 'storeB' ? `ただいま、${label}に到着しました。` : config.arrivalText }
   }), [settings])
+  const operationStoreOptions = useMemo(() => OPERATION_STORES.map((option) => ({ ...option, label: settings.storeLabels[option.id] || option.defaultLabel })), [settings])
+  const activeStoreConfig = useMemo(() => operationStoreOptions.find((option) => option.id === workReport.activeStoreId) || null, [operationStoreOptions, workReport.activeStoreId])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -920,6 +958,16 @@ function App() {
   const updateRecord = (id, patch) => setRecords((current) => current.map((record) => record.id === id ? { ...record, ...patch } : record))
   const updateWorkStore = (storeId, patch) => setWorkReport((current) => ({ ...current, stores: { ...current.stores, [storeId]: { ...current.stores[storeId], ...patch } } }))
   const updateWorkSchedule = (patch) => setWorkReport((current) => ({ ...current, schedule: { ...current.schedule, ...patch } }))
+  const selectOperationStore = (storeId) => {
+    const selected = operationStoreOptions.find((option) => option.id === storeId)
+    if (!selected) return
+    setWorkReport((current) => ({ ...current, activeStoreId: selected.id }))
+    setStoreSelectorOpen(false)
+    setActiveView('record')
+    setLineText('')
+    setLineReportTargetIds([])
+    notify(`${selected.label}で本日の稼働を開始しました`)
+  }
 
   const startRecord = (spot) => {
     const normalizedSpot = normalizeSpot(spot)
@@ -1023,7 +1071,7 @@ function App() {
   const generateLineText = () => {
     // 90秒以内の未報告分を、シフト終了前後に関係なくまとめて対象にする。
     const reportRecords = settledRecords.filter((record) => getElapsedSeconds(record, now) <= 90 && !record.lineReportedAt)
-    const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
+    const storeLabel = activeStoreConfig?.label || storeConfigs.find((config) => config.id === 'storeB').label
     const sortedRecords = [...reportRecords].sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt))
     const normalRecords = sortedRecords.filter((record) => !record.reportType || record.reportType === 'normal')
     const detailedRecords = sortedRecords.filter((record) => record.reportType && record.reportType !== 'normal')
@@ -1051,7 +1099,7 @@ function App() {
   const generateImmediateLineText = (record) => {
     if (getElapsedSeconds(record, now) <= 90) return notify('90秒以内の件はシフト終了後にまとめて報告します')
     if (record.lineReportedAt) return notify('この記録はすでに報告済みです')
-    const storeLabel = storeConfigs.find((config) => config.id === 'storeB').label
+    const storeLabel = activeStoreConfig?.label || storeConfigs.find((config) => config.id === 'storeB').label
     setLineReportTargetIds([record.id])
     setLineText(buildImmediateLineText(record, storeLabel))
     notify(`${getRecordSpotLabel(record)}の都度報告用テキストを生成しました`)
@@ -1097,9 +1145,10 @@ function App() {
   const primaryTabItems = tabItems.filter((tab) => tab.id !== 'work')
 
   return <div className="app-shell">
-    <header className="app-header"><div className="brand-mark"><span className="brand-dot" /><span>精算機補助</span></div><div className="header-date">{formatDateLabel()}</div><button type="button" className="help-button" aria-label="店舗名設定を開く" onClick={() => setSettingsOpen(true)}>⚙</button></header>
-    <nav className="tab-nav" aria-label="メインメニュー">{tabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} />)}</nav>
-    <main className="main-content">
+    <header className="app-header"><div className="brand-block"><div className="brand-mark"><span className="brand-dot" /><span>精算機補助</span></div>{activeStoreConfig && <button type="button" className="header-store-button" onClick={() => setStoreSelectorOpen(true)} aria-label={`${activeStoreConfig.label}・店舗を変更`}>{activeStoreConfig.label}<Icon name="arrow" size={14} /></button>}</div><div className="header-date">{formatDateLabel()}</div><button type="button" className="help-button" aria-label="店舗名設定を開く" onClick={() => setSettingsOpen(true)}>⚙</button></header>
+    {activeStoreConfig && <nav className="tab-nav" aria-label="メインメニュー">{tabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} />)}</nav>}
+    <main className={`main-content ${activeStoreConfig ? '' : 'start-main-content'}`}>
+      {!activeStoreConfig ? <StoreStartView dateLabel={formatDateLabel()} options={operationStoreOptions} onSelect={selectOperationStore} /> : <>
       <div className="day-banner"><span><Icon name="clock" size={18} />本日 {formatDateLabel()}</span><div className="day-banner-actions"><button type="button" onClick={() => { setRecords(loadRecords(todayKey)); setWorkReport(loadWorkReport(todayKey)); notify('保存データを読み込みました') }}><Icon name="refresh" size={17} />更新</button><button type="button" className={`secondary-nav-button ${activeView === 'work' ? 'active' : ''}`} onClick={() => setActiveView('work')}><Icon name="note" size={15} />勤務報告</button></div></div>
 
       {activeView === 'record' && <section className="view-section" aria-labelledby="record-heading">
@@ -1114,14 +1163,15 @@ function App() {
       {activeView === 'issued' && <section className="view-section" aria-labelledby="issued-heading"><div className="section-heading"><div><h1 id="issued-heading">発行済み・精算待ち</h1><p>証明書を発行した車両の精算を記録します。番号の編集・削除もここから行えます。</p></div><span className="section-count">{issuedRecords.length}件</span></div>{issuedRecords.length === 0 ? <EmptyState title="精算待ちの車両はありません" detail="証明書発行後の車両がここに表示されます。" /> : <div className="record-list">{issuedRecords.map((record) => <RecordRow key={record.id} record={record} now={now} action={settleRecord} actionLabel="精算" onNote={setNoteRecord} onEdit={setEditRecord} onDelete={deleteRecord} />)}</div>}</section>}
 
       {activeView === 'history' && <section className="view-section" aria-labelledby="history-heading"><div className="section-heading"><div><h1 id="history-heading">本日の履歴</h1><p>精算済みの記録を確認・修正できます。90秒以内はまとめて、90秒超は都度報告します。</p></div><div className="section-heading-actions"><span className="section-count">{settledRecords.length}件</span><button type="button" className="subtle-button danger history-clear-button" disabled={settledRecords.length === 0} onClick={() => setDeleteAllOpen(true)}><Icon name="trash" size={16} />履歴を全件削除</button></div></div><div className="line-tools"><div><strong>まとめ報告</strong><span>精算済み・90秒以内の未報告記録をまとめます。いつでも生成できます。</span></div><button type="button" className="line-button" onClick={generateLineText}><span className="line-mark">LINE</span>まとめて報告文を生成</button></div>{lineText && <div className="line-output"><div className="line-output-heading"><strong>生成されたテキスト</strong><button type="button" className="copy-button" onClick={copyLineText}><Icon name="copy" size={17} />コピー</button></div><textarea readOnly value={lineText} aria-label="LINE用テキスト" /></div>}{settledRecords.length === 0 ? <EmptyState title="完了した記録はありません" detail="精算ボタンを押した記録がここに表示されます。" /> : <div className="record-list history-list">{settledRecords.map((record) => { const needsImmediateReport = getElapsedSeconds(record, now) > 90 && !record.lineReportedAt; return <RecordRow key={record.id} record={record} now={now} action={needsImmediateReport ? generateImmediateLineText : undefined} actionLabel="都度報告" onNote={setNoteRecord} onReport={setReportRecord} onEdit={setEditRecord} onDelete={deleteRecord} /> })}</div>}</section>}
+      </>}
     </main>
-    <footer className="app-footer">端末内に自動保存中 · {todayKey}</footer>
-    <nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav>
+    {activeStoreConfig && <><footer className="app-footer">端末内に自動保存中 · {todayKey}</footer><nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav></>}
     {noteRecord && <NoteSheet record={records.find((record) => record.id === noteRecord.id) || noteRecord} onSave={saveNotes} onClose={() => setNoteRecord(null)} />}
     {reportRecord && <ReportSheet record={records.find((record) => record.id === reportRecord.id) || reportRecord} onSave={saveReportSettings} onClose={() => setReportRecord(null)} />}
     {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
     {editRecord && <EditModal record={records.find((record) => record.id === editRecord.id) || editRecord} onSave={saveEdit} onDelete={deleteRecord} onClose={() => setEditRecord(null)} />}
     {deleteAllOpen && <DeleteAllDialog count={settledRecords.length} onConfirm={deleteAllSettledRecords} onClose={() => setDeleteAllOpen(false)} />}
+    {storeSelectorOpen && activeStoreConfig && <StoreSwitchSheet options={operationStoreOptions} currentStoreId={activeStoreConfig.id} onSelect={selectOperationStore} onClose={() => setStoreSelectorOpen(false)} />}
     {settingsOpen && <SettingsSheet settings={settings} onSave={saveSettings} onClose={() => setSettingsOpen(false)} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
