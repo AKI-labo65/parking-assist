@@ -1193,7 +1193,7 @@ export {
   shouldRestartForStore,
 }
 
-if (typeof document !== 'undefined') {
+if (typeof document !== 'undefined' && import.meta.env.MODE !== 'test') {
   const rootElement = document.getElementById('root')
   if (rootElement) createRoot(rootElement).render(<React.StrictMode><App /></React.StrictMode>)
 }
