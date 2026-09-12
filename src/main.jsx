@@ -25,9 +25,9 @@ const RESTART_MESSAGES = ['只今から次の店舗の方に向かいます。',
 const COMMON_WORK_MESSAGES = ['合流済み、現地にてオリエン完了しました。']
 const WORK_STORES = [
   { id: 'storeA', defaultLabel: '店舗A', arrivalText: '現着致しました。', hasCommute: true },
-  { id: 'storeB', defaultLabel: '店舗B', arrivalText: 'ただいま、店舗Bに到着しました。', hasCommute: false },
+  { id: 'storeB', defaultLabel: '名東本通店', arrivalText: 'ただいま、名東本通店に到着しました。', hasCommute: false },
 ]
-const DEFAULT_SETTINGS = { storeLabels: { storeA: '店舗A', storeB: '店舗B' } }
+const DEFAULT_SETTINGS = { storeLabels: { storeA: '店舗A', storeB: '名東本通店' } }
 const PARKING_SPOT_COLUMNS = [
   ['1', '2', '3', '4', '5', '6', '7', '8'],
   ['21', '20', '19', '18', '17', '16', '15', '14', '13', '12', '10', '9'],
@@ -266,10 +266,12 @@ function loadSettings() {
   try {
     const value = localStorage.getItem(SETTINGS_STORAGE_KEY)
     const parsed = value ? JSON.parse(value) : {}
+    const storedLabels = parsed.storeLabels || {}
+    const storeBLabel = storedLabels.storeB === '店舗B' ? DEFAULT_SETTINGS.storeLabels.storeB : storedLabels.storeB
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...(parsed.storeLabels || {}) },
+      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...storedLabels, ...(storeBLabel ? { storeB: storeBLabel } : {}) },
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -671,7 +673,7 @@ function SettingsSheet({ settings, onSave, onClose }) {
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }))
   const submit = (event) => {
     event.preventDefault()
-    onSave({ storeLabels: { storeA: form.storeA.trim() || '店舗A', storeB: form.storeB.trim() || '店舗B' } })
+    onSave({ storeLabels: { storeA: form.storeA.trim() || '店舗A', storeB: form.storeB.trim() || '名東本通店' } })
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={dialogRef} className="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-sheet-title" tabIndex="-1">
@@ -679,7 +681,7 @@ function SettingsSheet({ settings, onSave, onClose }) {
       <div className="sheet-heading"><div><span className="eyebrow">端末内に保存</span><h2 id="settings-sheet-title">店舗名設定</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button></div>
       <p className="spot-confirm-help">店舗名は公開ページやコードには保存されず、この端末のブラウザ内だけに保存されます。</p>
       <form onSubmit={submit}>
-        <div className="form-grid"><label className="field-label">1店舗目<input data-dialog-initial-focus className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：店舗A" /></label><label className="field-label">2店舗目<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：店舗B" /></label></div>
+        <div className="form-grid"><label className="field-label">1店舗目<input data-dialog-initial-focus className="text-input" type="text" value={form.storeA} onChange={(event) => update('storeA', event.target.value)} placeholder="例：店舗A" /></label><label className="field-label">2店舗目<input className="text-input" type="text" value={form.storeB} onChange={(event) => update('storeB', event.target.value)} placeholder="例：名東本通店" /></label></div>
         <div className="sheet-footer"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button">店舗名を保存</button></div>
       </form>
     </section>
