@@ -102,6 +102,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .parking-area { display: flex; flex-direction: column; background: var(--surface-low); border: 1px solid var(--line); border-radius: var(--radius-xl); padding: 20px; box-shadow: none; }
 .parking-area .area-heading { order: 1; }
 .parking-layout { order: 3; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.sugie-parking-layout { position: relative; order: 3; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); gap: 8px; min-height: 520px; padding: 14px; border: 1px solid #c3cad6; border-radius: 18px; background: #edf0f5; overflow: hidden; }
+.sugie-parking-layout::before { position: absolute; inset: 12px 21%; content: ''; border: 2px solid #b3bbc9; border-radius: 10px; background: #f7f8fb; pointer-events: none; }
 .parking-column { display: flex; flex-direction: column; gap: 8px; }
 .parking-column.left { padding-top: 0; }
 .parking-column.left .spot-button:nth-child(3) { margin-top: 17px; }
@@ -116,6 +118,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .spot-button.waiting { border-color: #a9c2ea; background: var(--blue-pale); color: var(--blue-text); }
 .spot-button.waiting small { color: var(--blue-text); }
 .spot-button:disabled { opacity: 1; }
+.sugie-parking-layout .spot-button { position: relative; z-index: 1; min-width: 0; min-height: 0; padding: 4px 2px; border-radius: 9px; box-shadow: 0 1px 2px rgba(25,28,36,.12); }
+.sugie-parking-layout .spot-button strong { font-size: clamp(17px, 4.6vw, 24px); }
+.sugie-parking-layout .spot-button small { font-size: 8px; }
 .unknown-start-button { order: 2; width: 100%; min-height: 60px; margin: 0 0 16px; padding: 8px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--blue-text); }
 .unknown-start-button:hover { border-color: var(--navy); background: var(--blue-pale); }
 .unknown-start-button span { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
@@ -344,6 +349,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .spot-button { min-height: 58px; border-radius: 14px; }
   .spot-button strong { font-size: 22px; }
   .spot-button small { font-size: 8px; }
+  .sugie-parking-layout { min-height: 470px; gap: 5px; padding: 10px; border-radius: 15px; }
+  .sugie-parking-layout::before { inset: 9px 20%; }
+  .sugie-parking-layout .spot-button { border-radius: 7px; }
+  .sugie-parking-layout .spot-button strong { font-size: 18px; }
   .store-start-view { padding: 38px 0 26px; }
   .store-start-intro { padding-inline: 8px; }
   .store-start-intro h1 { font-size: 28px; }

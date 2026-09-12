@@ -28,14 +28,27 @@ const WORK_STORES = [
   { id: 'storeB', defaultLabel: '名東本通店', arrivalText: 'ただいま、名東本通店に到着しました。', hasCommute: false },
 ]
 const OPERATION_STORES = [
-  { id: 'storeB', defaultLabel: '名東本通店', description: 'いつもの勤務先' },
-  { id: 'storeA', defaultLabel: '杉栄店', description: 'こちらで勤務する日' },
+  { id: 'storeB', defaultLabel: '名東本通店', description: 'いつもの勤務先', parkingLayout: 'meito' },
+  { id: 'storeA', defaultLabel: '杉栄店', description: 'こちらで勤務する日', parkingLayout: 'sugie' },
 ]
 const DEFAULT_SETTINGS = { storeLabels: { storeA: '杉栄店', storeB: '名東本通店' } }
-const PARKING_SPOT_COLUMNS = [
+const MEITO_SPOT_COLUMNS = [
   ['1', '2', '3', '4', '5', '6', '7', '8'],
   ['21', '20', '19', '18', '17', '16', '15', '14', '13', '12', '10', '9'],
 ]
+const SUGIE_SPOT_COLUMNS = [
+  ['15', '14', '13', '12', '10', '9', '8', '7', '6', '5', '4', '3', '2', '1'],
+  ['16', '17', '18', '19', '20', '21', '23'],
+]
+const SUGIE_SPOTS = [
+  ['15', 1, 1], ['14', 1, 2], ['13', 1, 3], ['12', 1, 4], ['10', 1, 5], ['9', 1, 6], ['8', 1, 7], ['7', 1, 8],
+  ['16', 3, 4], ['17', 3, 5], ['18', 3, 6], ['19', 4, 6], ['20', 5, 6], ['21', 6, 6], ['23', 7, 6],
+  ['6', 2, 8], ['5', 3, 8], ['4', 4, 8], ['3', 5, 8], ['2', 6, 8], ['1', 8, 8],
+].map(([spot, column, row]) => ({ spot, column, row }))
+const PARKING_LAYOUTS = {
+  meito: { id: 'meito', label: '名東本通店の配置', quickColumns: MEITO_SPOT_COLUMNS },
+  sugie: { id: 'sugie', label: '杉栄店の配置', quickColumns: SUGIE_SPOT_COLUMNS, spots: SUGIE_SPOTS },
+}
 const STATUS = {
   parking: { label: '駐車中', tone: 'parking' },
   issued: { label: '証明書発行済み', tone: 'issued' },
@@ -746,28 +759,34 @@ function RecordRow({ record, now, action, actionLabel, actionTone = 'primary', o
   </article>
 }
 
-function ParkingGrid({ records, onStart, onOpenRecord }) {
+function ParkingSpotButton({ spot, record, onStart, onOpenRecord, className = '', style }) {
+  const statusLabel = record ? (record.status === 'parking' ? '対応中' : '待ち') : null
+  return <button type="button" style={style} className={`spot-button ${className} ${record?.status === 'parking' ? 'active' : ''} ${record?.status === 'issued' ? 'waiting' : ''}`} onClick={() => record ? onOpenRecord(record) : onStart(spot)} aria-label={`${spot}番${record ? `・${statusLabel}・詳細を開く` : '・新しく記録開始'}`}>
+    <strong>{spot}</strong>
+    {record && <small>{statusLabel}</small>}
+  </button>
+}
+
+function ParkingGrid({ records, layoutId = 'meito', onStart, onOpenRecord }) {
   const occupied = new Map(records.filter((record) => record.status !== 'settled' && getRecordSpot(record)).map((record) => [getRecordSpot(record), record]))
-  return <div className="parking-layout" aria-label="駐車位置番号の実際の配置">
-    {PARKING_SPOT_COLUMNS.map((column, columnIndex) => <div key={columnIndex} className={`parking-column ${columnIndex === 0 ? 'left' : 'right'}`}>
-      {column.map((spot) => {
-        const record = occupied.get(spot)
-        const statusLabel = record ? (record.status === 'parking' ? '対応中' : '待ち') : null
-        return <button key={spot} type="button" className={`spot-button ${record?.status === 'parking' ? 'active' : ''} ${record?.status === 'issued' ? 'waiting' : ''}`} onClick={() => record ? onOpenRecord(record) : onStart(spot)} aria-label={`${spot}番${record ? `・${statusLabel}・詳細を開く` : '・新しく記録開始'}`}>
-          <strong>{spot}</strong>
-          {record && <small>{statusLabel}</small>}
-        </button>
-      })}
+  const layout = PARKING_LAYOUTS[layoutId] || PARKING_LAYOUTS.meito
+  if (layout.id === 'sugie') return <div className="sugie-parking-layout" aria-label="杉栄店の駐車位置番号の実際の配置">
+    {layout.spots.map(({ spot, column, row }) => <ParkingSpotButton key={spot} spot={spot} record={occupied.get(spot)} onStart={onStart} onOpenRecord={onOpenRecord} style={{ gridColumn: column, gridRow: row }} />)}
+  </div>
+  return <div className="parking-layout" aria-label="名東本通店の駐車位置番号の実際の配置">
+    {layout.quickColumns.map((column, columnIndex) => <div key={columnIndex} className={`parking-column ${columnIndex === 0 ? 'left' : 'right'}`}>
+      {column.map((spot) => <ParkingSpotButton key={spot} spot={spot} record={occupied.get(spot)} onStart={onStart} onOpenRecord={onOpenRecord} />)}
     </div>)}
   </div>
 }
 
-function SpotConfirmSheet({ record, onConfirm, onClose }) {
+function SpotConfirmSheet({ record, parkingLayout = 'meito', onConfirm, onClose }) {
   const dialogRef = useDialogFocus(onClose)
   const initialSpot = getRecordSpot(record)
   const [spot, setSpot] = useState(initialSpot || '')
   if (!record) return null
   const hasKnownSpot = Boolean(initialSpot)
+  const quickColumns = (PARKING_LAYOUTS[parkingLayout] || PARKING_LAYOUTS.meito).quickColumns
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={dialogRef} className="bottom-sheet spot-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="spot-confirm-title" tabIndex="-1">
       <div className="sheet-handle" />
@@ -776,7 +795,7 @@ function SpotConfirmSheet({ record, onConfirm, onClose }) {
       {hasKnownSpot && <p className="spot-confirm-started">開始時の番号：<strong>{formatSpotLabel(initialSpot)}</strong></p>}
       <label className="field-label" htmlFor="certificate-spot">駐車位置番号（入力必須・数字／英字）</label>
       <input id="certificate-spot" data-dialog-initial-focus className="text-input spot-confirm-input" type="text" inputMode="numeric" value={spot} onChange={(event) => setSpot(event.target.value)} placeholder="例：17（直接入力する場合）" />
-      <div className="spot-quick-layout" aria-label="駐車位置番号の候補">{PARKING_SPOT_COLUMNS.map((column, columnIndex) => <div key={columnIndex} className="spot-quick-column"><span className="spot-quick-column-label">{columnIndex === 0 ? '左側 1〜8' : '右側 21〜9'}</span><div className="spot-quick-column-buttons">{column.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div></div>)}</div>
+      <div className="spot-quick-layout" aria-label="駐車位置番号の候補">{quickColumns.map((column, columnIndex) => <div key={columnIndex} className="spot-quick-column"><span className="spot-quick-column-label">{parkingLayout === 'sugie' ? (columnIndex === 0 ? '左側・下側' : '中央・右側') : columnIndex === 0 ? '左側 1〜8' : '右側 21〜9'}</span><div className="spot-quick-column-buttons">{column.map((quickSpot) => <button key={quickSpot} type="button" className={spot === quickSpot ? 'selected' : ''} onClick={() => setSpot(quickSpot)}>{quickSpot}</button>)}</div></div>)}</div>
       <div className="spot-confirm-actions"><button type="button" className="primary-button" disabled={!normalizeSpot(spot)} onClick={() => onConfirm(record.id, spot)}>{spot ? `${formatSpotLabel(spot)}で発行確定` : '番号を入力してください'}</button><button type="button" className="exception-button" onClick={() => onConfirm(record.id, '')}>番号不明のまま発行（例外）</button></div>
     </section>
   </div>
@@ -1154,7 +1173,7 @@ function App() {
       {activeView === 'record' && <section className="view-section" aria-labelledby="record-heading">
         <div className="section-heading"><div><h1 id="record-heading">駐車番号を選択</h1><p>番号が分かるときはタップ。分からないときは発行時に入力できます。</p></div><span className="section-count">対応中 {parkingRecords.length}件</span></div>
         {parkingRecords.length > 0 && <div className="active-panel"><div className="active-panel-heading"><span className="live-dot" />タイマー動作中（発行時に番号入力）</div>{parkingRecords.map((record) => <div className="active-record" key={record.id}><div className="active-summary"><strong className={!getRecordSpot(record) ? 'unknown' : ''}>{getRecordSpotLabel(record)}</strong><div><StatusBadge status="parking" /><div className="active-time">{getElapsedSeconds(record, now)}<small>秒</small><span>{formatDuration(getElapsedSeconds(record, now))}</span></div></div></div><div className="active-actions"><button type="button" className="primary-button issue-button" onClick={() => issueCertificate(record)}><Icon name="check" size={20} /><span>証明書発行＋番号入力</span></button><div className="active-more-actions"><button type="button" className="secondary-button note-button" onClick={() => setNoteRecord(record)}><Icon name="note" size={16} />メモ</button><button type="button" className="secondary-button note-button" onClick={() => setEditRecord(record)}><Icon name="edit" size={16} />編集</button><button type="button" className="secondary-button note-button danger" onClick={() => deleteRecord(record)}><Icon name="trash" size={16} />削除</button></div></div></div>)}</div>}
-        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>左 1〜8　右 21〜9</span></div><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button><ParkingGrid records={records} onStart={startRecord} onOpenRecord={setEditRecord} /></div>
+        <div className="parking-area"><div className="area-heading"><h2>駐車位置番号</h2><span>{PARKING_LAYOUTS[activeStoreConfig.parkingLayout]?.label}</span></div><button type="button" className="unknown-start-button" onClick={startUnknownRecord}><Icon name="plus" size={20} /><span><strong>番号未入力でタイマー開始</strong><small>駐車証明発行時に番号を入力</small></span></button><ParkingGrid records={records} layoutId={activeStoreConfig.parkingLayout} onStart={startRecord} onOpenRecord={setEditRecord} /></div>
         {parkingRecords.length === 0 && <EmptyState title="タイマー動作中の車両はありません" detail="車が駐車したら、番号ボタンまたは番号未入力で開始を押してください。" />}
       </section>}
 
@@ -1168,7 +1187,7 @@ function App() {
     {activeStoreConfig && <><footer className="app-footer">端末内に自動保存中 · {todayKey}</footer><nav className="mobile-bottom-nav" aria-label="主要メニュー">{primaryTabItems.map((tab) => <NavigationTab key={tab.id} tab={tab} activeView={activeView} onSelect={setActiveView} mobile />)}</nav></>}
     {noteRecord && <NoteSheet record={records.find((record) => record.id === noteRecord.id) || noteRecord} onSave={saveNotes} onClose={() => setNoteRecord(null)} />}
     {reportRecord && <ReportSheet record={records.find((record) => record.id === reportRecord.id) || reportRecord} onSave={saveReportSettings} onClose={() => setReportRecord(null)} />}
-    {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
+    {issueRecord && <SpotConfirmSheet record={records.find((record) => record.id === issueRecord.id) || issueRecord} parkingLayout={activeStoreConfig?.parkingLayout} onConfirm={confirmCertificateIssue} onClose={() => setIssueRecord(null)} />}
     {editRecord && <EditModal record={records.find((record) => record.id === editRecord.id) || editRecord} onSave={saveEdit} onDelete={deleteRecord} onClose={() => setEditRecord(null)} />}
     {deleteAllOpen && <DeleteAllDialog count={settledRecords.length} onConfirm={deleteAllSettledRecords} onClose={() => setDeleteAllOpen(false)} />}
     {storeSelectorOpen && activeStoreConfig && <StoreSwitchSheet options={operationStoreOptions} currentStoreId={activeStoreConfig.id} onSelect={selectOperationStore} onClose={() => setStoreSelectorOpen(false)} />}
