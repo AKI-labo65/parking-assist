@@ -44,6 +44,15 @@ export function getMainStoreLabel(storeConfigs) {
   return main?.label || WORK_STORES.find((config) => config.id === MAIN_STORE_ID).defaultLabel
 }
 
+function getReportNoteLines(record, includeReportMemo = false) {
+  const notes = [
+    ...(record?.notePresets || []),
+    record?.memo?.trim(),
+    includeReportMemo ? record?.reportMemo?.trim() : '',
+  ].filter(Boolean)
+  return notes.map((note, index) => index === 0 ? `＊${note}` : note)
+}
+
 export function buildDetailedReportText(record, storeLabel) {
   const reportType = record.reportType || 'normal'
   const spotLine = `駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`
@@ -120,7 +129,6 @@ export function buildImmediateLineText(record, storeLabel) {
   const issueTime = formatTime(record.issuedAt || record.startedAt)
   const settleLine = record.settledAt ? `${formatTime(record.settledAt)}…精算` : '精算時間不明'
   const delayMinutes = getSettlementDelayMinutes(record)
-  const notes = [getNotes(record), record.reportMemo?.trim()].filter(Boolean).join('、')
   return compactLines([
     `【${storeLabel}】`,
     'お疲れ様です。',
@@ -132,7 +140,7 @@ export function buildImmediateLineText(record, storeLabel) {
     `${issueTime}…${record.issuedAt ? '証明書発行' : '駐車証明発行できず'}`,
     settleLine,
     delayMinutes !== null && delayMinutes > 0 ? `${delayMinutes}分` : '',
-    notes ? `＊${notes}` : '',
+    ...getReportNoteLines(record, true),
   ]).join('\n')
 }
 
@@ -145,8 +153,7 @@ function buildNormalRecordText(record) {
   const elapsedText = record.issuedAt ? `駐車→証明書発行${getElapsedSeconds(record)}秒` : '駐車→証明書発行できず'
   const issuedText = record.issuedAt ? `${formatTime(record.issuedAt).replace(':', '：')}…証明書発行` : `${formatTime(record.startedAt).replace(':', '：')}…証明書発行できず`
   const settledText = record.settledAt ? `${formatTime(record.settledAt).replace(':', '：')}…精算` : '精算時間不明'
-  const notes = getNotes(record)
-  return [`・駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`, elapsedText, issuedText, `${settledText}${notes ? `＊${notes}` : ''}`].join('\n')
+  return [`・駐車位置番号:${formatSpotLabel(getRecordSpot(record), '番号未入力')}`, elapsedText, issuedText, settledText, ...getReportNoteLines(record)].join('\n')
 }
 
 export function buildBulkReportText(records, storeLabel) {
@@ -157,7 +164,7 @@ export function buildBulkReportText(records, storeLabel) {
 
   if (normalRecords.length > 0) {
     const hasException = normalRecords.some((record) => Boolean(getNotes(record)))
-    const header = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、例外メモがあります。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
+    const header = [`【${storeLabel}】`, 'お疲れ様です。', hasException ? '1分30秒以内の記録ですが、一部メモあり。' : '1分30秒以内の件ですが問題なく発行されております。'].join('\n')
     sections.push(`${header}\n\n${normalRecords.map(buildNormalRecordText).join('\n\n')}`)
   }
   detailedRecords.forEach((record) => sections.push(buildDetailedReportText(record, storeLabel)))

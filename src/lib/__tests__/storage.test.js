@@ -80,7 +80,7 @@ describe('店舗名設定', () => {
 
   it('片方だけ保存されていても既定値で補う', () => {
     localStorage.setItem('parking-assist-settings', JSON.stringify({ storeLabels: { storeA: 'AA店' } }))
-    expect(loadSettings().storeLabels).toEqual({ storeA: 'AA店', storeB: '店舗B' })
+    expect(loadSettings().storeLabels).toEqual({ storeA: 'AA店', storeB: '名東本通店' })
   })
 })
 

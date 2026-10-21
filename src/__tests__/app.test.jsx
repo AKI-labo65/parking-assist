@@ -39,6 +39,11 @@ const setupUser = ({ copyFails = false } = {}) => {
   return user
 }
 
+const renderApp = async (user, storeName = '名東本通店') => {
+  render(<App />)
+  await user.click(screen.getByRole('button', { name: `${storeName}で本日の稼働を開始` }))
+}
+
 const seedWorkReport = (patch = {}) => {
   const workReport = createDefaultWorkReport()
   Object.assign(workReport.schedule, patch)
@@ -56,7 +61,7 @@ afterEach(() => {
 describe('記録の基本フロー', () => {
   it('番号タップ→証明書発行→精算まで記録できる', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: '17番・新しく記録開始' }))
     expect(screen.getByText('タイマー動作中（発行時に番号入力）')).toBeInTheDocument()
@@ -79,7 +84,7 @@ describe('記録の基本フロー', () => {
 
   it('番号未入力で開始し、発行時に番号を確定できる', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: /番号未入力でタイマー開始/ }))
     expect(screen.getByText('番号未入力 #1')).toBeInTheDocument()
@@ -94,7 +99,7 @@ describe('記録の基本フロー', () => {
   it('番号未入力の連番は、精算済みがあっても重複しない', async () => {
     seedRecords([settledRecord({ id: 'old', spot: null, unknownLabel: '1' })])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: /番号未入力でタイマー開始/ }))
     expect(screen.getByText('番号未入力 #2')).toBeInTheDocument()
@@ -103,7 +108,7 @@ describe('記録の基本フロー', () => {
   it('対応中の番号は発行時に確定できない', async () => {
     seedRecords([settledRecord({ id: 'active', settledAt: null, status: 'issued' })])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: /番号未入力でタイマー開始/ }))
     await user.click(screen.getByRole('button', { name: /証明書発行＋番号入力/ }))
@@ -114,11 +119,21 @@ describe('記録の基本フロー', () => {
   })
 })
 
+describe('本日の店舗選択', () => {
+  it('杉栄店を選ぶと専用の駐車配置を表示する', async () => {
+    const user = setupUser()
+    await renderApp(user, '杉栄店')
+
+    expect(screen.getByRole('button', { name: '23番・新しく記録開始' })).toBeInTheDocument()
+    expect(screen.getByLabelText('杉栄店の駐車位置番号の実際の配置')).toBeInTheDocument()
+  })
+})
+
 describe('削除と取り消し', () => {
   it('確認ダイアログを経て削除し、元に戻せる', async () => {
     seedRecords([settledRecord()])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     await user.click(screen.getByRole('button', { name: '削除' }))
@@ -134,7 +149,7 @@ describe('削除と取り消し', () => {
   it('キャンセルすると記録は残る', async () => {
     seedRecords([settledRecord()])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     await user.click(screen.getByRole('button', { name: '削除' }))
@@ -146,20 +161,21 @@ describe('削除と取り消し', () => {
 })
 
 describe('LINE報告', () => {
-  it('勤務終了前はまとめ報告を生成できない', async () => {
+  it('勤務終了前でも90秒以内のまとめ報告を生成できる', async () => {
     seedRecords([settledRecord()])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
-    expect(screen.getByRole('button', { name: /18:00終了後に生成/ })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
+    expect(screen.getByLabelText('LINE用テキスト').value).toContain('・駐車位置番号:17番')
   })
 
   it('勤務終了後はまとめ報告を生成し、コピーで報告済みにする', async () => {
     seedWorkReport({ endedAt: minutesAgo(5) })
     seedRecords([settledRecord()])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
@@ -175,7 +191,7 @@ describe('LINE報告', () => {
     seedWorkReport({ endedAt: minutesAgo(5) })
     seedRecords([settledRecord()])
     const user = setupUser({ copyFails: true })
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
@@ -189,7 +205,7 @@ describe('LINE報告', () => {
     const startedAt = minutesAgo(30)
     seedRecords([settledRecord({ issuedAt: new Date(Date.parse(startedAt) + 120000).toISOString(), startedAt })])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     expect(screen.getByText('90秒超')).toBeInTheDocument()
@@ -200,7 +216,7 @@ describe('LINE報告', () => {
   it('未発行のまま精算した記録は都度報告にしない', async () => {
     seedRecords([settledRecord({ issuedAt: null, startedAt: minutesAgo(40) })])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     expect(screen.queryByText('90秒超')).not.toBeInTheDocument()
@@ -211,7 +227,7 @@ describe('LINE報告', () => {
 describe('シートの操作性', () => {
   it('Escapeキーでシートを閉じられる', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: '店舗名設定を開く' }))
     expect(await screen.findByRole('dialog', { name: '店舗名設定' })).toBeInTheDocument()
@@ -222,11 +238,11 @@ describe('シートの操作性', () => {
 
   it('店舗名は端末内に保存され、報告文の宛先になる', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await user.click(screen.getByRole('button', { name: '店舗名設定を開く' }))
     const dialog = await screen.findByRole('dialog', { name: '店舗名設定' })
-    const storeBInput = within(dialog).getByPlaceholderText('例：店舗B')
+    const storeBInput = within(dialog).getByPlaceholderText('例：名東本通店')
     await user.clear(storeBInput)
     await user.type(storeBInput, 'テスト店')
     await user.click(within(dialog).getByRole('button', { name: '店舗名を保存' }))
@@ -234,11 +250,45 @@ describe('シートの操作性', () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem('parking-assist-settings')).storeLabels.storeB).toBe('テスト店'))
   })
 
+  it('店舗名の保存失敗を通知する', async () => {
+    const user = setupUser()
+    await renderApp(user)
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key === 'parking-assist-settings') throw new Error('storage unavailable')
+      return originalSetItem.call(this, key, value)
+    })
+
+    await user.click(screen.getByRole('button', { name: '店舗名設定を開く' }))
+    const dialog = await screen.findByRole('dialog', { name: '店舗名設定' })
+    const storeBInput = within(dialog).getByPlaceholderText('例：名東本通店')
+    await user.clear(storeBInput)
+    await user.type(storeBInput, 'テスト店')
+    await user.click(within(dialog).getByRole('button', { name: '店舗名を保存' }))
+
+    expect(await screen.findByText(/店舗名を端末に保存できませんでした/)).toBeInTheDocument()
+  })
+
+  it('勤務報告の保存失敗を通知する', async () => {
+    const user = setupUser()
+    await renderApp(user)
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key === `${WORK_STORAGE_PREFIX}${dateKey}`) throw new Error('storage unavailable')
+      return originalSetItem.call(this, key, value)
+    })
+
+    await openTab(user, '勤務報告')
+    await user.click(screen.getByRole('button', { name: /杉栄店に到着/ }))
+
+    expect(await screen.findByText(/勤務報告を端末に保存できませんでした/)).toBeInTheDocument()
+  })
+
   it('メモを保存しても精算済みの記録は壊れず、報告済みだけ解除される', async () => {
     const exitCompletedAt = minutesAgo(20)
     seedRecords([settledRecord({ exitCompletedAt, lineReportedAt: minutesAgo(10) })])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     expect(screen.getByText(/報告済み/)).toBeInTheDocument()
@@ -261,15 +311,15 @@ describe('シートの操作性', () => {
 describe('勤務報告', () => {
   it('到着と勤務時間を記録して報告文を生成する', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, '勤務報告')
-    await user.click(screen.getByRole('button', { name: /店舗Aに到着/ }))
+    await user.click(screen.getByRole('button', { name: /杉栄店に到着/ }))
     await user.click(screen.getByRole('button', { name: /10:00 勤務開始/ }))
     await user.click(screen.getByRole('button', { name: /報告文を生成/ }))
 
     const output = screen.getByLabelText('勤務報告用テキスト').value
-    expect(output).toContain('【店舗A】')
+    expect(output).toContain('【杉栄店】')
     expect(output).toContain('10:00配置つきました。')
     expect(output).not.toContain('undefined')
   })
@@ -280,7 +330,7 @@ describe('生成済みテキストの鮮度', () => {
     seedWorkReport({ endedAt: minutesAgo(5) })
     seedRecords([settledRecord()])
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, /履歴/)
     await user.click(screen.getByRole('button', { name: /まとめて報告文を生成/ }))
@@ -302,7 +352,7 @@ describe('生成済みテキストの鮮度', () => {
 describe('勤務時間の記録', () => {
   it('順番が飛んだときは確認し、記録済みはタップで取り消せる', async () => {
     const user = setupUser()
-    render(<App />)
+    await renderApp(user)
 
     await openTab(user, '勤務報告')
     await user.click(screen.getByRole('button', { name: /18:00 勤務終了/ }))
@@ -333,10 +383,13 @@ describe('日付またぎ', () => {
     localStorage.setItem(`${STORAGE_PREFIX}${firstKey}`, JSON.stringify([parking('first-day', '1')]))
     localStorage.setItem(`${STORAGE_PREFIX}${nextKey}`, JSON.stringify([parking('next-day', '2')]))
 
-    render(<App />)
+    const user = setupUser()
+    await renderApp(user)
     expect(screen.getByRole('button', { name: '1番・対応中・詳細を開く' })).toBeInTheDocument()
 
     await act(async () => { vi.advanceTimersByTime(21_000) })
+
+    await user.click(screen.getByRole('button', { name: '名東本通店で本日の稼働を開始' }))
 
     expect(screen.getByRole('button', { name: '2番・対応中・詳細を開く' })).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}${nextKey}`))[0].id).toBe('next-day')

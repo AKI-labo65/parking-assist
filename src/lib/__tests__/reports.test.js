@@ -44,8 +44,8 @@ describe('buildStoreConfigs / getMainStoreLabel', () => {
   })
 
   it('設定が無いときは既定の店舗名を使う', () => {
-    expect(getMainStoreLabel(buildStoreConfigs(undefined))).toBe('店舗B')
-    expect(getMainStoreLabel([])).toBe('店舗B')
+    expect(getMainStoreLabel(buildStoreConfigs(undefined))).toBe('名東本通店')
+    expect(getMainStoreLabel([])).toBe('名東本通店')
   })
 })
 
@@ -62,7 +62,7 @@ describe('buildBulkReportText', () => {
 
   it('例外メモがある場合は見出しを変える', () => {
     const text = buildBulkReportText([record({ notePresets: ['操作ミス'] })], 'BB店')
-    expect(text).toContain('1分30秒以内の記録ですが、例外メモがあります。')
+    expect(text).toContain('1分30秒以内の記録ですが、一部メモあり。')
     expect(text).toContain('＊操作ミス')
   })
 

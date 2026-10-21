@@ -1,4 +1,4 @@
-import { COMMUTE_OPTIONS, DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, STORAGE_PREFIX, WORK_STORAGE_PREFIX, WORK_STORES } from './constants.js'
+import { COMMUTE_OPTIONS, DEFAULT_SETTINGS, OPERATION_STORES, SETTINGS_STORAGE_KEY, STORAGE_PREFIX, WORK_STORAGE_PREFIX, WORK_STORES } from './constants.js'
 import { normalizeRecord } from './records.js'
 
 function readItem(key) {
@@ -38,10 +38,13 @@ export function loadSettings() {
   try {
     const value = readItem(SETTINGS_STORAGE_KEY)
     const parsed = value ? JSON.parse(value) : {}
+    const storedLabels = parsed.storeLabels || {}
+    const storeALabel = storedLabels.storeA === '店舗A' ? DEFAULT_SETTINGS.storeLabels.storeA : storedLabels.storeA
+    const storeBLabel = storedLabels.storeB === '店舗B' ? DEFAULT_SETTINGS.storeLabels.storeB : storedLabels.storeB
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...(parsed.storeLabels || {}) },
+      storeLabels: { ...DEFAULT_SETTINGS.storeLabels, ...storedLabels, ...(storeALabel ? { storeA: storeALabel } : {}), ...(storeBLabel ? { storeB: storeBLabel } : {}) },
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -68,6 +71,7 @@ export function createDefaultWorkReport() {
     serviceTickets: '20',
   })
   return {
+    activeStoreId: null,
     stores: Object.fromEntries(WORK_STORES.map(({ id }) => [id, createStore()])),
     schedule: {
       startedAt: null,
@@ -92,6 +96,7 @@ export function loadWorkReport(dateKey) {
     const report = {
       ...defaults,
       ...parsed,
+      activeStoreId: OPERATION_STORES.some(({ id }) => id === parsed.activeStoreId) ? parsed.activeStoreId : null,
       stores: Object.fromEntries(WORK_STORES.map(({ id }, index) => [id, { ...defaults.stores[id], ...(parsed.stores?.[id] || parsedStores[index] || {}) }])),
       schedule: { ...defaults.schedule, ...(parsed.schedule || {}) },
     }
