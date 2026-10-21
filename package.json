@@ -14,18 +14,20 @@
     "android:release": "npm run mobile:sync && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
-    "@capacitor/android": "latest",
-    "@capacitor/core": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite": "latest"
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.5",
-    "@capacitor/cli": "latest",
-    "jsdom": "^28.1.0",
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
+    "vite": "^8.2.1",
     "vitest": "^4.1.11"
   }
 }
